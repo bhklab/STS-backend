@@ -2,9 +2,17 @@
 authors = ["mattbocc <matthew.boccalon@live.ca>"]
 channels = ["conda-forge"]
 name = "STS-backend"
-platforms = ["osx-arm64"]
+platforms = ["osx-arm64", "linux-64", "linux-aarch64"]
 version = "0.1.0"
 
 [tasks]
+start = "uvicorn main:app --reload"
+prod_start = "gunicorn main:app --workers 1 --worker-class uvicorn.workers.UvicornWorker --bind 127.0.0.1:8000"
 
 [dependencies]
+python = ">=3.14.6,<3.15"
+fastapi = ">=0.141.1,<0.142"
+python-dotenv = ">=1.2.2,<2"
+pandas = ">=3.0.5,<4"
+pymysql = ">=1.2.0,<2"
+gunicorn = ">=26.0.0,<27"
