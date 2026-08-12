@@ -1,0 +1,10 @@
+[workspace]
+authors = ["mattbocc <matthew.boccalon@live.ca>"]
+channels = ["conda-forge"]
+name = "STS-backend"
+platforms = ["osx-arm64"]
+version = "0.1.0"
+
+[tasks]
+
+[dependencies]
