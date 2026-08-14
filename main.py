@@ -1,10 +1,13 @@
+import os
 from fastapi import FastAPI
 from fastapi.responses import RedirectResponse
+from dotenv import load_dotenv
 
-app = FastAPI(title="Soft Tissue Sarcoma Portal API", openapi_url="/api/v1/openapi.json")
+load_dotenv(override=True)
 
+app = FastAPI(title="Soft Tissue Sarcoma Portal API", openapi_url="/api/v1/openapi.json", version=f"v{os.getenv('VERSION')}")
 
-@app.get("/")
+@app.get("/", include_in_schema=False)
 async def root():
     return RedirectResponse(url="/docs")
 
