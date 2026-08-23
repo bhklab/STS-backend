@@ -1,3 +1,4 @@
+from sys import version
 from sqlalchemy import (
     Float,
     ForeignKey,
@@ -21,11 +22,17 @@ in vitro datasets.
 """
 
 
-class PreClinicalDataset(Base):
-    __tablename__ = "pre_clinical_dataset"
+class Datasets(Base):
+    __tablename__ = "datasets"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    name: Mapped[str] = mapped_column(String(255), nullable=False, unique=True)
+    name: Mapped[str] = mapped_column(String(255), unique=True)
+    version: Mapped[str] = mapped_column(String(255), nullable=False)
+    description: Mapped[str] = mapped_column(String(255), nullable=False)
+    link: Mapped[str] = mapped_column(String(255), nullable=False)
+    publication: Mapped[str] = mapped_column(String(255), nullable=False) # publication year
+    PMID: Mapped[str] = mapped_column(String(20), nullable=False)
+    key_study_findings: Mapped[str] = mapped_column(String(255), nullable=False)
     clinical: Mapped[bool] = mapped_column(Boolean, nullable=False)
 
     cell_lines: Mapped[list["PreClinicalCellLine"]] = relationship(
@@ -71,7 +78,7 @@ class PreClinicalCellLine(Base):
         ),
     )
 
-    dataset: Mapped["PreClinicalDataset"] = relationship(back_populates="cell_lines")
+    dataset: Mapped["Datasets"] = relationship(back_populates="cell_lines")
     samples: Mapped[list["PreClinicalSample"]] = relationship(
         back_populates="cell_line",
         cascade="all, delete-orphan",
@@ -87,8 +94,7 @@ class PreClinicalCellLine(Base):
 class PreClinicalSample(Base):
     __tablename__ = "pre_clinical_sample"
 
-    sampleid: Mapped[str] = mapped_column(String(255), primary_key=True)
-
+    id: Mapped[str] = mapped_column(String(255), primary_key=True)
     dataset_id: Mapped[int] = mapped_column(
         Integer,
         ForeignKey("pre_clinical_dataset.id", ondelete="CASCADE"),
@@ -110,13 +116,13 @@ class PreClinicalSample(Base):
             name="fk_pc_sample_cell_line_dataset",
         ),
         UniqueConstraint(
-            "sampleid",
+            "id",
             "dataset_id",
             name="uq_pc_sample_dataset",
         ),
     )
 
-    dataset: Mapped["PreClinicalDataset"] = relationship(
+    dataset: Mapped["Datasets"] = relationship(
         back_populates="samples",
         overlaps="cell_line,samples",
     )
@@ -180,7 +186,7 @@ class PreClinicalTreatmentResponse(Base):
         ),
     )
 
-    dataset: Mapped["PreClinicalDataset"] = relationship(
+    dataset: Mapped["Datasets"] = relationship(
         back_populates="treatment_responses",
         overlaps="cell_line,treatment_responses",
     )
@@ -203,7 +209,7 @@ class PreClinicalRnaSeq(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     sample_id: Mapped[str] = mapped_column(
         String(255),
-        ForeignKey("pre_clinical_sample.sampleid", ondelete="CASCADE"),
+        ForeignKey("pre_clinical_sample.id", ondelete="CASCADE"),
         nullable=False,
     )
     gene_id: Mapped[str] = mapped_column(String(255), nullable=False)
@@ -226,7 +232,7 @@ class PreClinicalMicroarray(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     sample_id: Mapped[str] = mapped_column(
         String(255),
-        ForeignKey("pre_clinical_sample.sampleid", ondelete="CASCADE"),
+        ForeignKey("pre_clinical_sample.id", ondelete="CASCADE"),
         nullable=False,
     )
     gene_id: Mapped[str] = mapped_column(String(255), nullable=False)
@@ -249,7 +255,7 @@ class PreClinicalCopyNumberVariation(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     sample_id: Mapped[str] = mapped_column(
         String(255),
-        ForeignKey("pre_clinical_sample.sampleid", ondelete="CASCADE"),
+        ForeignKey("pre_clinical_sample.id", ondelete="CASCADE"),
         nullable=False,
     )
     gene_id: Mapped[str] = mapped_column(String(255), nullable=False)
@@ -274,7 +280,7 @@ class PreClinicalMutation(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     sample_id: Mapped[str] = mapped_column(
         String(255),
-        ForeignKey("pre_clinical_sample.sampleid", ondelete="CASCADE"),
+        ForeignKey("pre_clinical_sample.id", ondelete="CASCADE"),
         nullable=False,
     )
     gene_id: Mapped[str] = mapped_column(String(255), nullable=False)

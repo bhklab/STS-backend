@@ -58,7 +58,7 @@ async def get_molecular_profile(
                     PreClinicalCellLine.tissueid.label("tissue"),
                     val_col.label("value"),
                 )
-                .join(PreClinicalSample, data_layer_model.sample_id == PreClinicalSample.sampleid)
+                .join(PreClinicalSample, data_layer_model.sample_id == PreClinicalSample.id)
                 .join(
                     PreClinicalCellLine,
                     and_(
