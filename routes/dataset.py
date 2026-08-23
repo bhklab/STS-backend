@@ -8,16 +8,15 @@ from fastapi import APIRouter, HTTPException, Depends, Query
 from sqlalchemy import create_engine, select, or_
 import pandas as pd
 from database_session import get_db_session
-from models.pre_clinical_tables import PreClinicalDataset, PreClinicalSample, PreClinicalRnaSeq, PreClinicalMutation, PreClinicalMicroarray, PreClinicalCopyNumberVariation, PreClinicalTreatmentResponse
+from models.pre_clinical_tables import PreClinicalDataset, PreClinicalSample, PreClinicalRnaSeq, PreClinicalMutation, PreClinicalMicroarray, PreClinicalCopyNumberVariation, PreClinicalTreatmentResponse, PreClinicalGene
+from models.data_layers import pre_clinical_molecular_layers
 
-router = APIRouter(prefix="/datasets")
+router = APIRouter(prefix="/datasets", tags=["Datasets"])
 
-pre_clinical_layers = {
+pre_clinical_molecular_layers = {
     "RNA-seq": PreClinicalRnaSeq,
     "Copy Number Variation": PreClinicalCopyNumberVariation,
-    "Microarray": PreClinicalMicroarray,
-    
-    # "Treatment Response": PreClinicalTreatmentResponse
+    "Microarray": PreClinicalMicroarray,    
 }
     
 # Get all clinical and preclinical datasets
@@ -80,7 +79,7 @@ async def get_all_data_layers(
         return []
     else:
         # get the data layers available for the dataset by mapping sample_ids to layers
-        for data_layer_name, data_layer_model in pre_clinical_layers.items():
+        for data_layer_name, data_layer_model in pre_clinical_molecular_layers.items():
             row = (
                 session.query(data_layer_model.id)
                 .join(PreClinicalSample, data_layer_model.sample_id == PreClinicalSample.sampleid)
@@ -113,20 +112,29 @@ async def get_all_genes(
     if get_clinical_status(dataset_id, session):
         return
     else:
+        gene_sub_query = (
+            session.query(pre_clinical_molecular_layers[molecular_profile].gene_id)
+            .join(PreClinicalSample, pre_clinical_molecular_layers[molecular_profile].sample_id == PreClinicalSample.sampleid)
+            .filter(PreClinicalSample.dataset_id == dataset_id)
+            .distinct()
+            .subquery()
+        )
         rows = (
-                session.query(pre_clinical_layers[molecular_profile].id)
-                .join(PreClinicalSample, pre_clinical_layers[molecular_profile].sample_id == PreClinicalSample.sampleid)
-                .filter(PreClinicalSample.dataset_id == dataset_id)
-                .all()
-            )
-    
+            session.query(gene_sub_query.c.gene_id, PreClinicalGene.name)
+            .join(PreClinicalGene, PreClinicalGene.id == gene_sub_query.c.gene_id)
+            .all()
+        )
+
+    rows = [{"gene_id": row[0], "name": row[1]} for row in rows]
+
     return rows
 
 def get_clinical_status (dataset_id, session = Depends(get_db_session)):
 
     try: 
         # deduce if dataset is clinical or pre clinical
-        clinical = session.query(PreClinicalDataset.clinical).filter(PreClinicalDataset.id == dataset_id).first()
+        clinical = session.query(PreClinicalDataset.clinical).filter(PreClinicalDataset.id == dataset_id).scalar()
+
     except Exception as e:
         raise HTTPException(status_code=404, detail="Dataset not found")
 
