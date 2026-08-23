@@ -57,7 +57,7 @@ class PreClinicalCellLine(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     dataset_id: Mapped[int] = mapped_column(
         Integer,
-        ForeignKey("pre_clinical_dataset.id", ondelete="CASCADE"),
+        ForeignKey("datasets.id", ondelete="CASCADE"),
         nullable=False,
     )
 
@@ -97,7 +97,7 @@ class PreClinicalSample(Base):
     id: Mapped[str] = mapped_column(String(255), primary_key=True)
     dataset_id: Mapped[int] = mapped_column(
         Integer,
-        ForeignKey("pre_clinical_dataset.id", ondelete="CASCADE"),
+        ForeignKey("datasets.id", ondelete="CASCADE"),
         nullable=False,
     )
 
@@ -155,7 +155,7 @@ class PreClinicalTreatmentResponse(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     dataset_id: Mapped[int] = mapped_column(
         Integer,
-        ForeignKey("pre_clinical_dataset.id", ondelete="CASCADE"),
+        ForeignKey("datasets.id", ondelete="CASCADE"),
         nullable=False,
     )
 
