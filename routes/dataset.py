@@ -9,15 +9,10 @@ from sqlalchemy import create_engine, select, or_
 import pandas as pd
 from database_session import get_db_session
 from models.pre_clinical_tables import Datasets, PreClinicalSample, PreClinicalRnaSeq, PreClinicalMutation, PreClinicalMicroarray, PreClinicalCopyNumberVariation, PreClinicalTreatmentResponse, PreClinicalGene
-from models.data_layers import pre_clinical_molecular_layers
+from models.data_layers import pre_clinical_data_layers
 
 router = APIRouter(prefix="/datasets", tags=["Datasets"])
 
-pre_clinical_molecular_layers = {
-    "RNA-seq": PreClinicalRnaSeq,
-    "Copy Number Variation": PreClinicalCopyNumberVariation,
-    "Microarray": PreClinicalMicroarray,    
-}
     
 # Get all clinical and preclinical datasets
 @router.get(
@@ -78,17 +73,26 @@ async def get_all_data_layers(
     if get_clinical_status(dataset_id, session):
         return []
     else:
-        # get the data layers available for the dataset by mapping sample_ids to layers
-        for data_layer_name, data_layer_model in pre_clinical_molecular_layers.items():
-            row = (
-                session.query(data_layer_model.id)
-                .join(PreClinicalSample, data_layer_model.sample_id == PreClinicalSample.id)
-                .filter(PreClinicalSample.dataset_id == dataset_id)
-                .first()
-            )
-            if row:
-                available_layers.append(data_layer_name)
-    
+        # get the data layers available for the dataset by mapping sample ids to layers
+        for data_layer_name, data_layer_model in pre_clinical_data_layers.items():
+            if data_layer_name == "Treatment Response":
+                row = (
+                    session.query(data_layer_model.id)
+                    .filter(data_layer_model.dataset_id == dataset_id)
+                    .first()
+                )
+                if row:
+                    available_layers.append(data_layer_name)
+            else:
+                row = (
+                    session.query(data_layer_model.id)
+                    .join(PreClinicalSample, data_layer_model.sample_id == PreClinicalSample.id)
+                    .filter(PreClinicalSample.dataset_id == dataset_id)
+                    .first()
+                )
+                if row:
+                    available_layers.append(data_layer_name)
+
     return available_layers
 
 
@@ -113,8 +117,8 @@ async def get_all_genes(
         return
     else:
         gene_sub_query = (
-            session.query(pre_clinical_molecular_layers[molecular_profile].gene_id)
-            .join(PreClinicalSample, pre_clinical_molecular_layers[molecular_profile].sample_id == PreClinicalSample.id)
+            session.query(pre_clinical_data_layers[molecular_profile].gene_id)
+            .join(PreClinicalSample, pre_clinical_data_layers[molecular_profile].sample_id == PreClinicalSample.id)
             .filter(PreClinicalSample.dataset_id == dataset_id)
             .distinct()
             .subquery()
@@ -126,6 +130,33 @@ async def get_all_genes(
         )
 
     rows = [{"gene_id": row[0], "name": row[1]} for row in rows]
+
+    return rows
+
+# Get all drugs from a given clinical or preclinical dataset (could return MOA in the future as well for a filtering option)
+@router.get(
+    "/drugs",
+    summary="Get all drugs from a given clinical or preclinical dataset",
+)
+async def get_all_drugs(
+    dataset_id: int = Query(
+        description="The id of the dataset we want to retrieve drugs for",
+        example=1
+    ),
+    session=Depends(get_db_session),
+):
+
+    if get_clinical_status(dataset_id, session):
+        return
+    else:
+        rows = (
+            session.query(PreClinicalTreatmentResponse.treatment_id, PreClinicalTreatmentResponse.cid)
+            .filter(PreClinicalTreatmentResponse.dataset_id == dataset_id)
+            .distinct(PreClinicalTreatmentResponse.treatment_id)
+            .all()
+        )
+
+    rows = [{"treatment_id": row[0], "cid": row[1]} for row in rows]
 
     return rows
 

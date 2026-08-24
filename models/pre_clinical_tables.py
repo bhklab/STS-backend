@@ -8,6 +8,7 @@ from sqlalchemy import (
     Text,
     Boolean,
     UniqueConstraint,
+	DateTime
 )
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
@@ -164,6 +165,7 @@ class PreClinicalTreatmentResponse(Base):
     cell_line_name: Mapped[str] = mapped_column(String(255), nullable=False)
 
     treatment_id: Mapped[str] = mapped_column(String(255), nullable=False)
+    cid: Mapped[str | None] = mapped_column(String(255), nullable=True)
     ic50_recomputed: Mapped[float | None] = mapped_column(Float, nullable=True)
     acc_recomputed: Mapped[float | None] = mapped_column(Float, nullable=True)
     mechanism_of_action: Mapped[str | None] = mapped_column(String(255), nullable=True)
@@ -195,6 +197,76 @@ class PreClinicalTreatmentResponse(Base):
         overlaps="dataset,treatment_responses",
     )
 
+class PreClinicalDrug(Base):
+    __tablename__ = "drugs"
+
+    cid: Mapped[str] = mapped_column(
+        String(255),
+        ForeignKey("pre_clinical_treatment_response.cid", ondelete="CASCADE"),
+        primary_key=True,
+    )
+
+    title: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    mapped_name: Mapped[str | None] = mapped_column(Text, nullable=True)
+    molecule_chembl_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    molecule_chembl_id_from_synonyms: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+    molecular_formula: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    molecular_weight: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    smiles: Mapped[str | None] = mapped_column(Text, nullable=True)
+    connectivity_smiles: Mapped[str | None] = mapped_column(Text, nullable=True)
+    inchi: Mapped[str | None] = mapped_column(Text, nullable=True)
+    inchikey: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    iupac_name: Mapped[str | None] = mapped_column(Text, nullable=True)
+    xlogp: Mapped[float | None] = mapped_column(Float, nullable=True)
+    exact_mass: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    monoisotopic_mass: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    tpsa: Mapped[float | None] = mapped_column(Float, nullable=True)
+    complexity: Mapped[float | None] = mapped_column(Float, nullable=True)
+    charge: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    h_bond_donor_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    h_bond_acceptor_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    rotatable_bond_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    heavy_atom_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    isotope_atom_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    atom_stereo_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    defined_atom_stereo_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    undefined_atom_stereo_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    bond_stereo_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    defined_bond_stereo_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    undefined_bond_stereo_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    covalent_unit_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    volume_3d: Mapped[float | None] = mapped_column(Float, nullable=True)
+    x_steric_quadrupole_3d: Mapped[float | None] = mapped_column(Float, nullable=True)
+    y_steric_quadrupole_3d: Mapped[float | None] = mapped_column(Float, nullable=True)
+    z_steric_quadrupole_3d: Mapped[float | None] = mapped_column(Float, nullable=True)
+    feature_count_3d: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    feature_acceptor_count_3d: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    feature_donor_count_3d: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    feature_anion_count_3d: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    feature_cation_count_3d: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    feature_ring_count_3d: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    feature_hydrophobe_count_3d: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    conformer_model_rmsd_3d: Mapped[float | None] = mapped_column(Float, nullable=True)
+    effective_rotor_count_3d: Mapped[float | None] = mapped_column(Float, nullable=True)
+    conformer_count_3d: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    fingerprint_2d: Mapped[str | None] = mapped_column(Text, nullable=True)
+    patent_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    patent_family_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    literature_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    annotation_types: Mapped[str | None] = mapped_column(Text, nullable=True)
+    annotation_type_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    chembl_max_phase: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    drug_like: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+    fda_approval: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+    date_added: Mapped[object | None] = mapped_column(DateTime, nullable=True)
+    atc_code: Mapped[str | None] = mapped_column(String(255), nullable=True)
+
+    # First MOA
+    mechanism_molecule_chembl_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    mechanism_parent_molecule_chembl_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    mechanism_action_type: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    mechanism_of_action: Mapped[str | None] = mapped_column(Text, nullable=True)
+
 
 class PreClinicalGene(Base):
     __tablename__ = "pre_clinical_gene"
@@ -213,7 +285,7 @@ class PreClinicalRnaSeq(Base):
         nullable=False,
     )
     gene_id: Mapped[str] = mapped_column(String(255), nullable=False)
-    expression_value: Mapped[float] = mapped_column(Float, nullable=False)
+    value: Mapped[float] = mapped_column(Float, nullable=False)
 
     __table_args__ = (
         UniqueConstraint(
@@ -236,7 +308,7 @@ class PreClinicalMicroarray(Base):
         nullable=False,
     )
     gene_id: Mapped[str] = mapped_column(String(255), nullable=False)
-    expression_value: Mapped[float] = mapped_column(Float, nullable=False)
+    value: Mapped[float] = mapped_column(Float, nullable=False)
 
     __table_args__ = (
         UniqueConstraint(
