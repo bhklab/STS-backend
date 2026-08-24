@@ -40,9 +40,35 @@ async def get_single_dataset(
     dataset = session.query(Datasets).filter(Datasets.id == dataset_id).first()
     return dataset
 
+
+# Get clinical or preclinical dataset statistics for landing page
+@router.get(
+    "/statistics",
+    summary="Get statistics for all clinical and preclinical datasets for landing page",
+)
+async def get_all_dataset_statistics(
+    session=Depends(get_db_session),
+):
+    total_pre_clinical_datasets = session.query(Datasets).filter(Datasets.clinical == False).count()
+    total_clinical_datasets = session.query(Datasets).filter(Datasets.clinical == True).count()
+    total_pre_clinical_samples = session.query(PreClinicalSample.id).distinct().count()
+    total_drugs = session.query(PreClinicalTreatmentResponse.treatment_id).distinct().count()
+    total_cell_lines = session.query(PreClinicalSample.cell_line_name).distinct().count()
+    total_genes = session.query(PreClinicalGene.id).distinct().count()
+
+    return {
+        "total_clinical_datasets": total_clinical_datasets,
+        "total_pre_clinical_datasets": total_pre_clinical_datasets,
+        "total_pre_clinical_samples": total_pre_clinical_samples,
+        "total_clinical_samples": 0,
+        "total_drugs": total_drugs,
+        "total_cell_lines": total_cell_lines,
+        "total_genes": total_genes
+    }
+
 # Get a single clinical or preclinical dataset statistics
 @router.get(
-    "/one/statistics",
+    "/statistics/one",
     summary="Get a single clinical or preclinical dataset",
 )
 async def get_single_dataset_statistics(
