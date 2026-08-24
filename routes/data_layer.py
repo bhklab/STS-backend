@@ -7,8 +7,14 @@ from fastapi import APIRouter, HTTPException, Depends, Query
 from sqlalchemy import create_engine, select, or_, and_
 import pandas as pd
 from database_session import get_db_session
-from models.pre_clinical_tables import PreClinicalSample, PreClinicalRnaSeq, PreClinicalCellLine, PreClinicalGene
-from models.data_layers import pre_clinical_molecular_layers
+from models.pre_clinical_tables import (
+    PreClinicalSample,
+    PreClinicalRnaSeq,
+    PreClinicalCellLine,
+    PreClinicalGene,
+    PreClinicalTreatmentResponse,
+)
+from models.data_layers import pre_clinical_molecular_layers, pre_clinical_data_layers
 
 router = APIRouter(prefix="/data-layer", tags=["Data Layer"])
 
@@ -43,20 +49,17 @@ async def get_molecular_profile(
         raise HTTPException(
             status_code=400, detail="Need to include a molecular profile to get output"
         )
-    
-    
 
     result = defaultdict(list)
     data_layer_model = pre_clinical_molecular_layers.get(molecular_profile)
     if data_layer_model:
-        val_col = getattr(data_layer_model, "expression_value", getattr(data_layer_model, "value", None))
-        try: 
+        try:
             rows = (
                 session.query(
                     PreClinicalGene.name.label("gene_name"),
                     PreClinicalSample.cell_line_name.label("cell_line"),
                     PreClinicalCellLine.tissueid.label("tissue"),
-                    val_col.label("value"),
+                    data_layer_model.value,
                 )
                 .join(PreClinicalSample, data_layer_model.sample_id == PreClinicalSample.id)
                 .join(
@@ -78,8 +81,9 @@ async def get_molecular_profile(
                     "tissue": tissue,
                 })
         except Exception as e:
+            print(f"Error querying molecular profile for {molecular_profile} (dataset_id={dataset_id}): {e}")
             raise HTTPException(
-                status_code=404, detail="Molecular profile not found for this dataset"
+                status_code=404, detail=f"Molecular profile '{molecular_profile}' error: {e}"
             )
         
     else: 
@@ -90,31 +94,80 @@ async def get_molecular_profile(
     return result
 
 
-    
-
-    return
-
-
 @router.get(
     "/treatment-response",
-    summary="Extract cell line data by via cell line name",
+    summary="Extract treatment response data for the given set of drug(s) for a specific dataset",
 )
 async def get_treatment_response(
-    dataset: str = Query(
-        description="Single dataset to pull rna sequencing data from",
-        example="CCLE,GDSC,L1000"
+    dataset_id: int = Query(
+        description="Single dataset to pull treatment response data from",
+        example=1,
     ),
-    response_type: str = Query(
-        description="The type of response data to extract (either AAC or ic50)",
-        example="IC50"
+    drug: List[str] = Query(
+        default=None,
+        description="The drug(s) you want data for",
+        example=["(-)-Parthenolide"],
     ),
-    cell_lines: List[object] = Query(),
+    # cell_lines: List[str] = Query(
+    #     default=None,
+    #     description="Optional list of cell lines to filter by",
+    #     example=["A-204"],
+    # ),
     session=Depends(get_db_session),
 ):
-    if not dataset:
+    if not dataset_id:
         raise HTTPException(
             status_code=400, detail="Need to include a dataset to get output"
         )
+    elif not drug:
+        raise HTTPException(
+            status_code=400, detail="Need to include a drug to get output"
+        )
 
-    
-    return
+    result = defaultdict(list)
+    try:
+        query = (
+            session.query(
+                PreClinicalTreatmentResponse.treatment_id.label("drug_name"),
+                PreClinicalTreatmentResponse.cell_line_name.label("cell_line"),
+                PreClinicalCellLine.tissueid.label("tissue"),
+                PreClinicalTreatmentResponse.cid,
+                PreClinicalTreatmentResponse.ic50_recomputed,
+                PreClinicalTreatmentResponse.acc_recomputed,
+            )
+            .join(
+                PreClinicalCellLine,
+                and_(
+                    PreClinicalTreatmentResponse.cell_line_name == PreClinicalCellLine.cell_line_name,
+                    PreClinicalTreatmentResponse.dataset_id == PreClinicalCellLine.dataset_id,
+                ),
+            )
+            .filter(PreClinicalTreatmentResponse.dataset_id == dataset_id)
+        )
+
+        if drug:
+            drug_list = [d.strip() for item in drug for d in item.split(",") if d.strip()]
+            if drug_list:
+                query = query.filter(PreClinicalTreatmentResponse.treatment_id.in_(drug_list))
+
+        # if cell_lines:
+        #     cell_line_list = [c.strip() for item in cell_lines for c in item.split(",") if c.strip()]
+        #     if cell_line_list:
+        #         query = query.filter(PreClinicalTreatmentResponse.cell_line_name.in_(cell_line_list))
+
+        rows = query.all()
+        for drug_name, cell_line, tissue, cid, ic50_recomputed, acc_recomputed in rows:
+            result[drug_name].append({
+                "cellLine": cell_line,
+                "ic50_recomputed": ic50_recomputed,
+                "aac_recomputed": acc_recomputed,
+                "tissue": tissue,
+                "cid": cid,
+            })
+    except Exception as e:
+        print(f"Error querying treatment response (dataset_id={dataset_id}): {e}")
+        raise HTTPException(
+            status_code=404, detail=f"Treatment response error: {e}"
+        )
+
+    return result
