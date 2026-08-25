@@ -1,15 +1,14 @@
-from sqlalchemy import column
-from models.pre_clinical_tables import PreClinicalTreatmentResponse
-import os
-from pydantic import BaseModel, Field
-from typing import List
-from urllib.parse import quote_plus
 from fastapi import APIRouter, HTTPException, Depends, Query
-from sqlalchemy import create_engine, select, or_
+from sqlalchemy import func, distinct
 import pandas as pd
 from database_session import get_db_session
-from models.pre_clinical_tables import Datasets, PreClinicalSample, PreClinicalRnaSeq, PreClinicalMutation, PreClinicalMicroarray, PreClinicalCopyNumberVariation, PreClinicalTreatmentResponse, PreClinicalGene
-from models.data_layers import pre_clinical_data_layers
+from models.tables import (
+    Datasets,
+    PreClinicalSample,
+    PreClinicalTreatmentResponse,
+    PreClinicalGene,
+)
+from models.data_layers import pre_clinical_data_layers, pre_clinical_molecular_layers
 
 router = APIRouter(prefix="/datasets", tags=["Datasets"])
 
@@ -41,12 +40,121 @@ async def get_single_dataset(
     return dataset
 
 
-# Get clinical or preclinical dataset statistics for landing page
+# Get clinical or preclinical dataset statistics for dataset page
 @router.get(
-    "/statistics",
-    summary="Get statistics for all clinical and preclinical datasets for landing page",
+    "/statistics/dataset-page",
+    summary="Get statistics for all clinical and preclinical datasets for dataset page",
 )
 async def get_all_dataset_statistics(
+    session=Depends(get_db_session),
+):
+    datasets = session.query(Datasets).all()
+    preclinical_datasets = []
+    clinical_datasets = []
+
+    for d in datasets:
+        if d.clinical:
+            clinical_datasets.append({
+                "id": d.id,
+                "name": d.name,
+                "description": d.description,
+                "version": d.version,
+                "link": d.link,
+                "publication": d.publication,
+                "PMID": d.PMID,
+                "key_study_findings": d.key_study_findings,
+                "total_samples": 0,
+                "total_genes": 0,
+                "total_drugs": 0,
+                "total_cell_lines": 0,
+                "data_layers": []
+            })
+        else:
+            samples = (
+                session.query(func.count(distinct(PreClinicalSample.id)))
+                .filter(PreClinicalSample.dataset_id == d.id)
+                .scalar()
+                or 0
+            )
+            total_cell_lines = (
+                session.query(func.count(distinct(PreClinicalSample.cell_line_name)))
+                .filter(PreClinicalSample.dataset_id == d.id)
+                .scalar()
+                or 0
+            )
+            total_drugs = (
+                session.query(func.count(distinct(PreClinicalTreatmentResponse.treatment_id)))
+                .filter(PreClinicalTreatmentResponse.dataset_id == d.id)
+                .scalar()
+                or 0
+            )
+
+            # Available data layers for this dataset
+            available_layers = []
+            for data_layer_name, data_layer_model in pre_clinical_data_layers.items():
+                if data_layer_name == "Treatment Response":
+                    has_layer = (
+                        session.query(data_layer_model.id)
+                        .filter(data_layer_model.dataset_id == d.id)
+                        .first()
+                        is not None
+                    )
+                else:
+                    has_layer = (
+                        session.query(data_layer_model.id)
+                        .join(PreClinicalSample, data_layer_model.sample_id == PreClinicalSample.id)
+                        .filter(PreClinicalSample.dataset_id == d.id)
+                        .first()
+                        is not None
+                    )
+                if has_layer:
+                    available_layers.append(data_layer_name)
+
+            # Total distinct genes across available molecular data layers
+            gene_queries = [
+                session.query(model.gene_id)
+                .join(PreClinicalSample, model.sample_id == PreClinicalSample.id)
+                .filter(PreClinicalSample.dataset_id == d.id)
+                for name, model in pre_clinical_molecular_layers.items()
+                if name in available_layers
+            ]
+            if gene_queries:
+                combined_genes = (
+                    gene_queries[0].union(*gene_queries[1:])
+                    if len(gene_queries) > 1
+                    else gene_queries[0]
+                )
+                total_genes = combined_genes.distinct().count()
+            else:
+                total_genes = 0
+
+            preclinical_datasets.append({
+                "id": d.id,
+                "name": d.name,
+                "description": d.description,
+                "version": d.version,
+                "link": d.link,
+                "publication": d.publication,
+                "PMID": d.PMID,
+                "key_study_findings": d.key_study_findings,
+                "total_samples": samples,
+                "total_genes": total_genes,
+                "total_drugs": total_drugs,
+                "total_cell_lines": total_cell_lines,
+                "data_layers": available_layers
+            })
+
+    return {
+        "preclinical_datasets": preclinical_datasets,
+        "clinical_datasets": clinical_datasets,
+    }
+
+# Get clinical or preclinical dataset statistics for landing page
+@router.get(
+    "/statistics/landing-page",
+    summary="Get statistics for all clinical and preclinical datasets for landing page",
+)
+async def get_landing_page_dataset_statistics(
     session=Depends(get_db_session),
 ):
     total_pre_clinical_datasets = session.query(Datasets).filter(Datasets.clinical == False).count()
