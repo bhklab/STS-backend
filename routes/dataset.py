@@ -8,6 +8,8 @@ from models.tables import (
     PreClinicalTreatmentResponse,
     PreClinicalGene,
     ClinicalSample,
+    ClinicalAntigen,
+    ClinicalProbe,
 )
 from models.data_layers import (
     pre_clinical_data_layers,
@@ -307,24 +309,68 @@ async def get_all_genes(
     clinical = get_clinical_status(dataset_id, session)
 
     if clinical:
-        # ── Clinical: join against clinical_sample ─────────────────────────
         model = clinical_data_layers.get(molecular_profile)
-        if not model or not hasattr(model, "gene_id"):
+        if not model:
             return []
 
-        gene_sub_query = (
-            session.query(model.gene_id)
-            .join(ClinicalSample, model.sample_id == ClinicalSample.id)
-            .filter(ClinicalSample.dataset_id == dataset_id)
-            .filter(model.gene_id.isnot(None))
-            .distinct()
-            .subquery()
-        )
-        rows = (
-            session.query(gene_sub_query.c.gene_id, PreClinicalGene.name)
-            .join(PreClinicalGene, PreClinicalGene.id == gene_sub_query.c.gene_id)
-            .all()
-        )
+        if molecular_profile == "RPPA":
+            antigen_sub = (
+                session.query(model.antigen_id)
+                .join(ClinicalSample, model.sample_id == ClinicalSample.id)
+                .filter(ClinicalSample.dataset_id == dataset_id)
+                .distinct()
+                .subquery()
+            )
+            rows = (
+                session.query(ClinicalAntigen.id, ClinicalAntigen.peptide_target)
+                .join(antigen_sub, ClinicalAntigen.id == antigen_sub.c.antigen_id)
+                .all()
+            )
+            return [{"gene_id": row[0], "name": row[1] or row[0]} for row in rows]
+
+        elif molecular_profile == "MiRNA":
+            rows = (
+                session.query(model.id)
+                .join(ClinicalSample, model.sample_id == ClinicalSample.id)
+                .filter(ClinicalSample.dataset_id == dataset_id)
+                .distinct()
+                .all()
+            )
+            return [{"gene_id": row[0], "name": row[0]} for row in rows]
+
+        elif molecular_profile == "Methylation":
+            probe_sub = (
+                session.query(model.probe_id)
+                .join(ClinicalSample, model.sample_id == ClinicalSample.id)
+                .filter(ClinicalSample.dataset_id == dataset_id)
+                .distinct()
+                .subquery()
+            )
+            rows = (
+                session.query(ClinicalProbe.id, ClinicalProbe.name)
+                .join(probe_sub, ClinicalProbe.id == probe_sub.c.probe_id)
+                .all()
+            )
+            return [{"gene_id": row[0], "name": row[1] or row[0]} for row in rows]
+
+        else:
+            # RNA-seq, CNV, Mutation — gene_id based
+            if not hasattr(model, "gene_id"):
+                return []
+
+            gene_sub_query = (
+                session.query(model.gene_id)
+                .join(ClinicalSample, model.sample_id == ClinicalSample.id)
+                .filter(ClinicalSample.dataset_id == dataset_id)
+                .filter(model.gene_id.isnot(None))
+                .distinct()
+                .subquery()
+            )
+            rows = (
+                session.query(gene_sub_query.c.gene_id, PreClinicalGene.name)
+                .join(PreClinicalGene, PreClinicalGene.id == gene_sub_query.c.gene_id)
+                .all()
+            )
 
     else:
         gene_sub_query = (

@@ -14,6 +14,8 @@ from models.tables import (
     PreClinicalGene,
     PreClinicalTreatmentResponse,
     ClinicalSample,
+    ClinicalAntigen,
+    ClinicalProbe,
 )
 from models.data_layers import pre_clinical_molecular_layers, clinical_molecular_layers
 
@@ -64,27 +66,130 @@ async def get_molecular_profile(
                 status_code=404, detail="Molecular profiles not found for this dataset"
             )
         try:
-            rows = (
-                session.query(
-                    PreClinicalGene.name.label("gene_name"),
-                    ClinicalSample.id.label("sample"),
-                    ClinicalSample.tissue.label("tissue"),
-                    ClinicalSample.histology.label("histology"),
-                    data_layer_model.value,
+            if molecular_profile in ("RNA-seq", "Copy Number Variation"):
+                rows = (
+                    session.query(
+                        PreClinicalGene.name.label("gene_name"),
+                        ClinicalSample.id.label("sample"),
+                        ClinicalSample.tissue.label("tissue"),
+                        ClinicalSample.histology.label("histology"),
+                        data_layer_model.value,
+                    )
+                    .join(ClinicalSample, data_layer_model.sample_id == ClinicalSample.id)
+                    .join(PreClinicalGene, PreClinicalGene.id == data_layer_model.gene_id)
+                    .filter(ClinicalSample.dataset_id == dataset_id)
+                    .filter(data_layer_model.gene_id.in_(gene))
+                    .all()
                 )
-                .join(ClinicalSample, data_layer_model.sample_id == ClinicalSample.id)
-                .join(PreClinicalGene, PreClinicalGene.id == data_layer_model.gene_id)
-                .filter(ClinicalSample.dataset_id == dataset_id)
-                .filter(data_layer_model.gene_id.in_(gene))
-                .all()
-            )
-            for gene_name, sample, tissue, histology, value in rows:
-                result[gene_name].append({
-                    "sample": sample,
-                    "value": value,
-                    "tissue": tissue,
-                    "histology": histology,
-                })
+                for gene_name, sample, tissue, histology, value in rows:
+                    result[gene_name].append({
+                        "sample": sample,
+                        "value": value,
+                        "tissue": tissue,
+                        "histology": histology,
+                    })
+
+            elif molecular_profile == "Mutation":
+                rows = (
+                    session.query(
+                        PreClinicalGene.name.label("gene_name"),
+                        ClinicalSample.id.label("sample"),
+                        ClinicalSample.tissue.label("tissue"),
+                        ClinicalSample.histology.label("histology"),
+                        data_layer_model.mutation,
+                        data_layer_model.oncoprint,
+                    )
+                    .join(ClinicalSample, data_layer_model.sample_id == ClinicalSample.id)
+                    .join(PreClinicalGene, PreClinicalGene.id == data_layer_model.gene_id)
+                    .filter(ClinicalSample.dataset_id == dataset_id)
+                    .filter(data_layer_model.gene_id.in_(gene))
+                    .all()
+                )
+                for gene_name, sample, tissue, histology, mutation, oncoprint in rows:
+                    result[gene_name].append({
+                        "sample": sample,
+                        "mutation": mutation,
+                        "oncoprint": oncoprint,
+                        "tissue": tissue,
+                        "histology": histology,
+                    })
+
+            elif molecular_profile == "RPPA":
+                rows = (
+                    session.query(
+                        ClinicalAntigen.id.label("antigen_id"),
+                        ClinicalAntigen.peptide_target,
+                        ClinicalAntigen.peptide_target_gene,
+                        ClinicalSample.id.label("sample"),
+                        ClinicalSample.tissue.label("tissue"),
+                        ClinicalSample.histology.label("histology"),
+                        data_layer_model.value,
+                    )
+                    .join(ClinicalSample, data_layer_model.sample_id == ClinicalSample.id)
+                    .join(ClinicalAntigen, ClinicalAntigen.id == data_layer_model.antigen_id)
+                    .filter(ClinicalSample.dataset_id == dataset_id)
+                    .filter(data_layer_model.antigen_id.in_(gene))
+                    .all()
+                )
+                for antigen_id, peptide_target, peptide_target_gene, sample, tissue, histology, value in rows:
+                    result[antigen_id].append({
+                        "sample": sample,
+                        "value": value,
+                        "tissue": tissue,
+                        "histology": histology,
+                        "antigen_id": antigen_id,
+                        "peptide_target": peptide_target,
+                        "peptide_target_gene": peptide_target_gene,
+                    })
+
+            elif molecular_profile == "MiRNA":
+                rows = (
+                    session.query(
+                        data_layer_model.id.label("mirna_id"),
+                        ClinicalSample.id.label("sample"),
+                        ClinicalSample.tissue.label("tissue"),
+                        ClinicalSample.histology.label("histology"),
+                        data_layer_model.value,
+                    )
+                    .join(ClinicalSample, data_layer_model.sample_id == ClinicalSample.id)
+                    .filter(ClinicalSample.dataset_id == dataset_id)
+                    .filter(data_layer_model.id.in_(gene))
+                    .all()
+                )
+                for mirna_id, sample, tissue, histology, value in rows:
+                    result[mirna_id].append({
+                        "sample": sample,
+                        "value": value,
+                        "tissue": tissue,
+                        "histology": histology,
+                    })
+
+            elif molecular_profile == "Methylation":
+                rows = (
+                    session.query(
+                        data_layer_model.probe_id,
+                        ClinicalProbe.name.label("probe_name"),
+                        ClinicalSample.id.label("sample"),
+                        ClinicalSample.tissue.label("tissue"),
+                        ClinicalSample.histology.label("histology"),
+                        data_layer_model.value,
+                    )
+                    .join(ClinicalSample, data_layer_model.sample_id == ClinicalSample.id)
+                    .join(ClinicalProbe, ClinicalProbe.id == data_layer_model.probe_id)
+                    .filter(ClinicalSample.dataset_id == dataset_id)
+                    .filter(data_layer_model.probe_id.in_(gene))
+                    .all()
+                )
+                for probe_id, probe_name, sample, tissue, histology, value in rows:
+                    result[probe_id].append({
+                        "sample": sample,
+                        "value": value,
+                        "tissue": tissue,
+                        "histology": histology,
+                        "probe_id": probe_id,
+                        "probe_name": probe_name,
+                    })
+
         except Exception as e:
             print(f"Error querying clinical molecular profile for {molecular_profile} (dataset_id={dataset_id}): {e}")
             raise HTTPException(
@@ -168,7 +273,7 @@ async def get_treatment_response(
         raise HTTPException(status_code=404, detail="Dataset not found")
 
     result = defaultdict(list)
-    drug_list = [d.strip() for item in drug for d in item.split(",") if d.strip()]
+    drug_list = [d.strip() for d in drug if d and d.strip()]
 
     if dataset.clinical:
         raise HTTPException(

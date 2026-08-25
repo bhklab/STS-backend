@@ -102,6 +102,14 @@ class ClinicalRNA(Base):
         nullable=True,
     ) # tpm_unstrand matrix
 
+    __table_args__ = (
+        UniqueConstraint(
+            "sample_id",
+            "gene_id",
+            name="uq_clinical_rna_sample_gene",
+        ),
+    )
+
 
 class ClinicalMutation(Base):
     __tablename__ = "clinical_mutation"
@@ -124,8 +132,14 @@ class ClinicalMutation(Base):
         String(100),
         nullable=True,
     ) # oncoprint matrix
-        
-    
+
+    __table_args__ = (
+        UniqueConstraint(
+            "sample_id",
+            "gene_id",
+            name="uq_clinical_mutation_sample_gene",
+        ),
+    )
 
 
 class ClinicalCNV(Base):
@@ -146,6 +160,14 @@ class ClinicalCNV(Base):
         nullable=True,
     ) # copy_number
 
+    __table_args__ = (
+        UniqueConstraint(
+            "sample_id",
+            "gene_id",
+            name="uq_clinical_cnv_sample_gene",
+        ),
+    )
+
 
 class ClinicalRPPA(Base):
     __tablename__ = "clinical_rppa"
@@ -164,6 +186,14 @@ class ClinicalRPPA(Base):
         Float,
         nullable=True,
     ) # expression matrix
+
+    __table_args__ = (
+        UniqueConstraint(
+            "sample_id",
+            "antigen_id",
+            name="uq_clinical_rppa_sample_antigen",
+        ),
+    )
 
 
 class ClinicalMiRNA(Base):
@@ -188,6 +218,14 @@ class ClinicalMiRNA(Base):
         nullable=True,
     ) #rpm matrix
 
+    __table_args__ = (
+        UniqueConstraint(
+            "sample_id",
+            "id",
+            name="uq_clinical_mirna_sample_id",
+        ),
+    )
+
 
 class ClinicalMethylation(Base):
     __tablename__ = "clinical_methylation"
@@ -206,6 +244,14 @@ class ClinicalMethylation(Base):
         Float,
         nullable=True,
     ) #listData [[1]] matrix
+
+    __table_args__ = (
+        UniqueConstraint(
+            "sample_id",
+            "probe_id",
+            name="uq_clinical_methylation_sample_probe",
+        ),
+    )
 
 
 class ClinicalSlide(Base):
