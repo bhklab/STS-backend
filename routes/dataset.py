@@ -3,12 +3,18 @@ from sqlalchemy import func, distinct
 import pandas as pd
 from database_session import get_db_session
 from models.tables import (
-    Datasets,
+    Dataset,
     PreClinicalSample,
     PreClinicalTreatmentResponse,
     PreClinicalGene,
+    ClinicalSample,
 )
-from models.data_layers import pre_clinical_data_layers, pre_clinical_molecular_layers
+from models.data_layers import (
+    pre_clinical_data_layers,
+    pre_clinical_molecular_layers,
+    clinical_data_layers,
+    clinical_molecular_layers,
+)
 
 router = APIRouter(prefix="/datasets", tags=["Datasets"])
 
@@ -21,7 +27,7 @@ router = APIRouter(prefix="/datasets", tags=["Datasets"])
 async def get_all_datasets(
     session=Depends(get_db_session),
 ):
-    rows = session.query(Datasets).all()
+    rows = session.query(Dataset).all()
     return rows
 
 # Get a single clinical or preclinical dataset
@@ -36,7 +42,7 @@ async def get_single_dataset(
     ),
     session=Depends(get_db_session),
 ):
-    dataset = session.query(Datasets).filter(Datasets.id == dataset_id).first()
+    dataset = session.query(Dataset).filter(Dataset.id == dataset_id).first()
     return dataset
 
 
@@ -48,12 +54,52 @@ async def get_single_dataset(
 async def get_all_dataset_statistics(
     session=Depends(get_db_session),
 ):
-    datasets = session.query(Datasets).all()
+    datasets = session.query(Dataset).all()
     preclinical_datasets = []
     clinical_datasets = []
 
     for d in datasets:
         if d.clinical:
+            samples = (
+                session.query(func.count(distinct(ClinicalSample.id)))
+                .filter(ClinicalSample.dataset_id == d.id)
+                .scalar()
+                or 0
+            )
+
+            available_layers = []
+            for data_layer_name, data_layer_model in clinical_data_layers.items():
+                has_layer = (
+                    session.query(data_layer_model.sample_id)
+                    .join(ClinicalSample, data_layer_model.sample_id == ClinicalSample.id)
+                    .filter(ClinicalSample.dataset_id == d.id)
+                    .first()
+                    is not None
+                )
+                if has_layer:
+                    available_layers.append(data_layer_name)
+
+            # Total distinct genes across available clinical molecular data layers
+            gene_queries = []
+            for name, model in clinical_molecular_layers.items():
+                if name in available_layers and hasattr(model, "gene_id"):
+                    gene_queries.append(
+                        session.query(model.gene_id)
+                        .join(ClinicalSample, model.sample_id == ClinicalSample.id)
+                        .filter(ClinicalSample.dataset_id == d.id)
+                        .filter(model.gene_id.isnot(None))
+                    )
+
+            if gene_queries:
+                combined_genes = (
+                    gene_queries[0].union(*gene_queries[1:])
+                    if len(gene_queries) > 1
+                    else gene_queries[0]
+                )
+                total_genes = combined_genes.distinct().count()
+            else:
+                total_genes = 0
+
             clinical_datasets.append({
                 "id": d.id,
                 "name": d.name,
@@ -63,12 +109,13 @@ async def get_all_dataset_statistics(
                 "publication": d.publication,
                 "PMID": d.PMID,
                 "key_study_findings": d.key_study_findings,
-                "total_samples": 0,
-                "total_genes": 0,
+                "total_samples": samples,
+                "total_genes": total_genes,
                 "total_drugs": 0,
                 "total_cell_lines": 0,
-                "data_layers": []
+                "data_layers": available_layers,
             })
+
         else:
             samples = (
                 session.query(func.count(distinct(PreClinicalSample.id)))
@@ -157,9 +204,10 @@ async def get_all_dataset_statistics(
 async def get_landing_page_dataset_statistics(
     session=Depends(get_db_session),
 ):
-    total_pre_clinical_datasets = session.query(Datasets).filter(Datasets.clinical == False).count()
-    total_clinical_datasets = session.query(Datasets).filter(Datasets.clinical == True).count()
+    total_pre_clinical_datasets = session.query(Dataset).filter(Dataset.clinical == False).count()
+    total_clinical_datasets = session.query(Dataset).filter(Dataset.clinical == True).count()
     total_pre_clinical_samples = session.query(PreClinicalSample.id).distinct().count()
+    total_clinical_samples = session.query(ClinicalSample.id).distinct().count()
     total_drugs = session.query(PreClinicalTreatmentResponse.treatment_id).distinct().count()
     total_cell_lines = session.query(PreClinicalSample.cell_line_name).distinct().count()
     total_genes = session.query(PreClinicalGene.id).distinct().count()
@@ -168,7 +216,7 @@ async def get_landing_page_dataset_statistics(
         "total_clinical_datasets": total_clinical_datasets,
         "total_pre_clinical_datasets": total_pre_clinical_datasets,
         "total_pre_clinical_samples": total_pre_clinical_samples,
-        "total_clinical_samples": 0,
+        "total_clinical_samples": total_clinical_samples,
         "total_drugs": total_drugs,
         "total_cell_lines": total_cell_lines,
         "total_genes": total_genes
@@ -186,7 +234,7 @@ async def get_single_dataset_statistics(
     ),
     session=Depends(get_db_session),
 ):
-    dataset = session.query(Datasets).filter(Datasets.id == dataset_id).first()
+    dataset = session.query(Dataset).filter(Dataset.id == dataset_id).first()
     return dataset
 
 
@@ -203,9 +251,19 @@ async def get_all_data_layers(
     session=Depends(get_db_session),
 ):
     available_layers = []
+    clinical = get_clinical_status(dataset_id, session)
 
-    if get_clinical_status(dataset_id, session):
-        return []
+    if clinical:
+        # ── Clinical: check each layer by joining against clinical_sample ─
+        for data_layer_name, data_layer_model in clinical_data_layers.items():
+            row = (
+                session.query(data_layer_model.sample_id)
+                .join(ClinicalSample, data_layer_model.sample_id == ClinicalSample.id)
+                .filter(ClinicalSample.dataset_id == dataset_id)
+                .first()
+            )
+            if row:
+                available_layers.append(data_layer_name)
     else:
         # get the data layers available for the dataset by mapping sample ids to layers
         for data_layer_name, data_layer_model in pre_clinical_data_layers.items():
@@ -224,8 +282,8 @@ async def get_all_data_layers(
                     .filter(PreClinicalSample.dataset_id == dataset_id)
                     .first()
                 )
-                if row:
-                    available_layers.append(data_layer_name)
+            if row:
+                available_layers.append(data_layer_name)
 
     return available_layers
 
@@ -246,9 +304,28 @@ async def get_all_genes(
     ),
     session=Depends(get_db_session),
 ):
+    clinical = get_clinical_status(dataset_id, session)
 
-    if get_clinical_status(dataset_id, session):
-        return
+    if clinical:
+        # ── Clinical: join against clinical_sample ─────────────────────────
+        model = clinical_data_layers.get(molecular_profile)
+        if not model or not hasattr(model, "gene_id"):
+            return []
+
+        gene_sub_query = (
+            session.query(model.gene_id)
+            .join(ClinicalSample, model.sample_id == ClinicalSample.id)
+            .filter(ClinicalSample.dataset_id == dataset_id)
+            .filter(model.gene_id.isnot(None))
+            .distinct()
+            .subquery()
+        )
+        rows = (
+            session.query(gene_sub_query.c.gene_id, PreClinicalGene.name)
+            .join(PreClinicalGene, PreClinicalGene.id == gene_sub_query.c.gene_id)
+            .all()
+        )
+
     else:
         gene_sub_query = (
             session.query(pre_clinical_data_layers[molecular_profile].gene_id)
@@ -279,9 +356,11 @@ async def get_all_drugs(
     ),
     session=Depends(get_db_session),
 ):
+    clinical = get_clinical_status(dataset_id, session)
 
-    if get_clinical_status(dataset_id, session):
-        return
+    if clinical:
+        # Clinical datasets do not currently have treatment response data
+        return []
     else:
         rows = (
             session.query(PreClinicalTreatmentResponse.treatment_id, PreClinicalTreatmentResponse.cid)
@@ -294,12 +373,10 @@ async def get_all_drugs(
 
     return rows
 
-def get_clinical_status (dataset_id, session = Depends(get_db_session)):
-
-    try: 
+def get_clinical_status(dataset_id, session=Depends(get_db_session)):
+    try:
         # deduce if dataset is clinical or pre clinical
-        clinical = session.query(Datasets.clinical).filter(Datasets.id == dataset_id).scalar()
-
+        clinical = session.query(Dataset.clinical).filter(Dataset.id == dataset_id).scalar()
     except Exception as e:
         raise HTTPException(status_code=404, detail="Dataset not found")
 
