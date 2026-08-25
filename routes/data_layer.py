@@ -7,7 +7,7 @@ from fastapi import APIRouter, HTTPException, Depends, Query
 from sqlalchemy import create_engine, select, or_, and_
 import pandas as pd
 from database_session import get_db_session
-from models.pre_clinical_tables import (
+from models.tables import (
     PreClinicalSample,
     PreClinicalRnaSeq,
     PreClinicalCellLine,
