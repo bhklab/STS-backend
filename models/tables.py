@@ -211,15 +211,9 @@ class ClinicalMethylation(Base):
 class ClinicalSlide(Base):
     __tablename__ = "clinical_slide"
 
-    # Full slide barcode + UUID, e.g.
-    # TCGA-3B-A9HI-01Z-00-DX1.FF553011-934A-4E3E-AA53-B87FC307E095. One
-    # sample can have multiple slides (some samples have up to 9), so this
-    # is the primary key rather than sample_id.
+    # Full slide barcode + UUID, e.g. TCGA-3B-A9HI-01Z-00-DX1.FF553011-934A-4E3E-AA53-B87FC307E095.
+	# Note: One sample can have multiple slides (some samples have up to 9).
     id: Mapped[str] = mapped_column(String(150), primary_key=True)
-    # Resolved at extraction time (extract_tcga_slides.py) against clinical_
-    # sample.id: slide barcodes use vial letter "Z" while clinical_sample.id
-    # uses "A"/"B"/etc, so this can't be derived by truncating the slide
-    # barcode -- it's matched by patient + sample type prefix instead.
     sample_id: Mapped[str] = mapped_column(
         String(100),
         ForeignKey("clinical_sample.id", ondelete="CASCADE")
@@ -228,7 +222,6 @@ class ClinicalSlide(Base):
         Integer,
         ForeignKey("datasets.id"),
     )
-    file_path: Mapped[str] = mapped_column(Text)
     n_tiles: Mapped[int] = mapped_column(Integer)
     embedding_dim: Mapped[int] = mapped_column(Integer)  # e.g. 1536
 
