@@ -5,15 +5,21 @@ from database_session import get_db_session
 from models.tables import (
     Dataset,
     PreClinicalSample,
-    PreClinicalCellLine,
-    PreClinicalCellLineInfo,
     PreClinicalTreatmentResponse,
     PreClinicalDrug,
     PreClinicalGene,
+    PreClinicalRnaSeq,
+    PreClinicalCopyNumberVariation,
+    PreClinicalMicroarray,
     ClinicalSample,
     ClinicalAntigen,
     ClinicalProbe,
     ClinicalMiRNA,
+    ClinicalRNA,
+    ClinicalCNV,
+    ClinicalMutation,
+    ClinicalRPPA,
+    ClinicalMethylation,
 )
 from models.data_layers import (
     pre_clinical_data_layers,
@@ -61,48 +67,88 @@ async def get_all_dataset_statistics(
     session=Depends(get_db_session),
 ):
     datasets = session.query(Dataset).all()
+
+    # Pre-calculate sample and cell-line counts in single batch queries
+    pc_samples = dict(
+        session.query(PreClinicalSample.dataset_id, func.count(PreClinicalSample.id))
+        .group_by(PreClinicalSample.dataset_id)
+        .all()
+    )
+    pc_cell_lines = dict(
+        session.query(PreClinicalSample.dataset_id, func.count(distinct(PreClinicalSample.cell_line_name)))
+        .group_by(PreClinicalSample.dataset_id)
+        .all()
+    )
+    cl_samples = dict(
+        session.query(ClinicalSample.dataset_id, func.count(ClinicalSample.id))
+        .group_by(ClinicalSample.dataset_id)
+        .all()
+    )
+
+    # Pre-calculate drug counts per dataset
+    pc_drugs = dict(
+        session.query(PreClinicalTreatmentResponse.dataset_id, func.count(distinct(PreClinicalTreatmentResponse.treatment_id)))
+        .group_by(PreClinicalTreatmentResponse.dataset_id)
+        .all()
+    )
+
+    # Pre-calculate layer availability per dataset via distinct dataset_id lookups
+    pc_layer_datasets = {
+        "Treatment Response": set(r[0] for r in session.query(PreClinicalTreatmentResponse.dataset_id).distinct().all()),
+        "RNA-seq": set(r[0] for r in session.query(PreClinicalSample.dataset_id).join(PreClinicalRnaSeq, PreClinicalRnaSeq.sample_id == PreClinicalSample.id).distinct().all()),
+        "Copy Number Variation": set(r[0] for r in session.query(PreClinicalSample.dataset_id).join(PreClinicalCopyNumberVariation, PreClinicalCopyNumberVariation.sample_id == PreClinicalSample.id).distinct().all()),
+        "Microarray": set(r[0] for r in session.query(PreClinicalSample.dataset_id).join(PreClinicalMicroarray, PreClinicalMicroarray.sample_id == PreClinicalSample.id).distinct().all()),
+    }
+
+    cl_layer_datasets = {
+        "RNA-seq": set(r[0] for r in session.query(ClinicalSample.dataset_id).join(ClinicalRNA, ClinicalRNA.sample_id == ClinicalSample.id).distinct().all()),
+        "Copy Number Variation": set(r[0] for r in session.query(ClinicalSample.dataset_id).join(ClinicalCNV, ClinicalCNV.sample_id == ClinicalSample.id).distinct().all()),
+        "MiRNA": set(r[0] for r in session.query(ClinicalSample.dataset_id).join(ClinicalMiRNA, ClinicalMiRNA.sample_id == ClinicalSample.id).distinct().all()),
+        "Mutation": set(r[0] for r in session.query(ClinicalSample.dataset_id).join(ClinicalMutation, ClinicalMutation.sample_id == ClinicalSample.id).distinct().all()),
+        "RPPA": set(r[0] for r in session.query(ClinicalSample.dataset_id).join(ClinicalRPPA, ClinicalRPPA.sample_id == ClinicalSample.id).distinct().all()),
+        "Methylation": set(r[0] for r in session.query(ClinicalSample.dataset_id).join(ClinicalMethylation, ClinicalMethylation.sample_id == ClinicalSample.id).distinct().all()),
+    }
+
     preclinical_datasets = []
     clinical_datasets = []
 
     for d in datasets:
         if d.clinical:
-            samples = (
-                session.query(func.count(distinct(ClinicalSample.id)))
-                .filter(ClinicalSample.dataset_id == d.id)
-                .scalar()
-                or 0
-            )
-
-            available_layers = []
-            for data_layer_name, data_layer_model in clinical_data_layers.items():
-                has_layer = (
-                    session.query(data_layer_model.sample_id)
-                    .join(ClinicalSample, data_layer_model.sample_id == ClinicalSample.id)
-                    .filter(ClinicalSample.dataset_id == d.id)
-                    .first()
-                    is not None
-                )
-                if has_layer:
-                    available_layers.append(data_layer_name)
-
-            # Total distinct genes across available clinical molecular data layers
-            gene_queries = []
-            for name, model in clinical_molecular_layers.items():
-                if name in available_layers and hasattr(model, "gene_id"):
-                    gene_queries.append(
-                        session.query(model.gene_id)
-                        .join(ClinicalSample, model.sample_id == ClinicalSample.id)
-                        .filter(ClinicalSample.dataset_id == d.id)
-                        .filter(model.gene_id.isnot(None))
+            avail_layers = [name for name, dsets in cl_layer_datasets.items() if d.id in dsets]
+            # Calculate clinical total genes dynamically on the fly
+            if "RNA-seq" in avail_layers:
+                first_sample = session.query(ClinicalSample.id).filter(ClinicalSample.dataset_id == d.id).first()
+                if first_sample:
+                    total_genes = (
+                        session.query(func.count(distinct(ClinicalRNA.gene_id)))
+                        .filter(ClinicalRNA.sample_id == first_sample[0])
+                        .filter(ClinicalRNA.gene_id.isnot(None))
+                        .scalar()
+                        or 0
                     )
-
-            if gene_queries:
-                combined_genes = (
-                    gene_queries[0].union(*gene_queries[1:])
-                    if len(gene_queries) > 1
-                    else gene_queries[0]
+                else:
+                    total_genes = 0
+            elif "Copy Number Variation" in avail_layers:
+                first_sample = session.query(ClinicalSample.id).filter(ClinicalSample.dataset_id == d.id).first()
+                if first_sample:
+                    total_genes = (
+                        session.query(func.count(distinct(ClinicalCNV.gene_id)))
+                        .filter(ClinicalCNV.sample_id == first_sample[0])
+                        .filter(ClinicalCNV.gene_id.isnot(None))
+                        .scalar()
+                        or 0
+                    )
+                else:
+                    total_genes = 0
+            elif "Mutation" in avail_layers:
+                total_genes = (
+                    session.query(func.count(distinct(ClinicalMutation.gene_id)))
+                    .join(ClinicalSample, ClinicalMutation.sample_id == ClinicalSample.id)
+                    .filter(ClinicalSample.dataset_id == d.id)
+                    .filter(ClinicalMutation.gene_id.isnot(None))
+                    .scalar()
+                    or 0
                 )
-                total_genes = combined_genes.distinct().count()
             else:
                 total_genes = 0
 
@@ -115,69 +161,27 @@ async def get_all_dataset_statistics(
                 "publication": d.publication,
                 "PMID": d.PMID,
                 "key_study_findings": d.key_study_findings,
-                "total_samples": samples,
+                "total_samples": cl_samples.get(d.id, 0),
                 "total_genes": total_genes,
                 "total_drugs": 0,
                 "total_cell_lines": 0,
-                "data_layers": available_layers,
+                "data_layers": avail_layers,
             })
-
         else:
-            samples = (
-                session.query(func.count(distinct(PreClinicalSample.id)))
-                .filter(PreClinicalSample.dataset_id == d.id)
-                .scalar()
-                or 0
-            )
-            total_cell_lines = (
-                session.query(func.count(distinct(PreClinicalSample.cell_line_name)))
-                .filter(PreClinicalSample.dataset_id == d.id)
-                .scalar()
-                or 0
-            )
-            total_drugs = (
-                session.query(func.count(distinct(PreClinicalTreatmentResponse.treatment_id)))
-                .filter(PreClinicalTreatmentResponse.dataset_id == d.id)
-                .scalar()
-                or 0
-            )
-
-            # Available data layers for this dataset
-            available_layers = []
-            for data_layer_name, data_layer_model in pre_clinical_data_layers.items():
-                if data_layer_name == "Treatment Response":
-                    has_layer = (
-                        session.query(data_layer_model.id)
-                        .filter(data_layer_model.dataset_id == d.id)
-                        .first()
-                        is not None
+            avail_layers = [name for name, dsets in pc_layer_datasets.items() if d.id in dsets]
+            # Calculate pre-clinical total genes dynamically on the fly
+            gene_queries = []
+            sample_ids_subquery = session.query(PreClinicalSample.id).filter(PreClinicalSample.dataset_id == d.id).subquery()
+            for name in avail_layers:
+                if name in pre_clinical_molecular_layers:
+                    model = pre_clinical_molecular_layers[name]
+                    gene_queries.append(
+                        session.query(model.gene_id)
+                        .filter(model.sample_id.in_(session.query(sample_ids_subquery.c.id)))
                     )
-                else:
-                    has_layer = (
-                        session.query(data_layer_model.id)
-                        .join(PreClinicalSample, data_layer_model.sample_id == PreClinicalSample.id)
-                        .filter(PreClinicalSample.dataset_id == d.id)
-                        .first()
-                        is not None
-                    )
-                if has_layer:
-                    available_layers.append(data_layer_name)
-
-            # Total distinct genes across available molecular data layers
-            gene_queries = [
-                session.query(model.gene_id)
-                .join(PreClinicalSample, model.sample_id == PreClinicalSample.id)
-                .filter(PreClinicalSample.dataset_id == d.id)
-                for name, model in pre_clinical_molecular_layers.items()
-                if name in available_layers
-            ]
             if gene_queries:
-                combined_genes = (
-                    gene_queries[0].union(*gene_queries[1:])
-                    if len(gene_queries) > 1
-                    else gene_queries[0]
-                )
-                total_genes = combined_genes.distinct().count()
+                combined = gene_queries[0].union(*gene_queries[1:]) if len(gene_queries) > 1 else gene_queries[0]
+                total_genes = combined.distinct().count()
             else:
                 total_genes = 0
 
@@ -190,11 +194,11 @@ async def get_all_dataset_statistics(
                 "publication": d.publication,
                 "PMID": d.PMID,
                 "key_study_findings": d.key_study_findings,
-                "total_samples": samples,
+                "total_samples": pc_samples.get(d.id, 0),
                 "total_genes": total_genes,
-                "total_drugs": total_drugs,
-                "total_cell_lines": total_cell_lines,
-                "data_layers": available_layers
+                "total_drugs": pc_drugs.get(d.id, 0),
+                "total_cell_lines": pc_cell_lines.get(d.id, 0),
+                "data_layers": avail_layers,
             })
 
     return {
@@ -212,11 +216,11 @@ async def get_landing_page_dataset_statistics(
 ):
     total_pre_clinical_datasets = session.query(Dataset).filter(Dataset.clinical == False).count()
     total_clinical_datasets = session.query(Dataset).filter(Dataset.clinical == True).count()
-    total_pre_clinical_samples = session.query(PreClinicalSample.id).distinct().count()
-    total_clinical_samples = session.query(ClinicalSample.id).distinct().count()
-    total_drugs = session.query(PreClinicalTreatmentResponse.treatment_id).distinct().count()
-    total_cell_lines = session.query(PreClinicalSample.cell_line_name).distinct().count()
-    total_genes = session.query(PreClinicalGene.id).distinct().count()
+    total_pre_clinical_samples = session.query(PreClinicalSample.id).count()
+    total_clinical_samples = session.query(ClinicalSample.id).count()
+    total_drugs = session.query(PreClinicalDrug.cid).count()
+    total_cell_lines = session.query(func.count(distinct(PreClinicalSample.cell_line_name))).scalar() or 0
+    total_genes = session.query(PreClinicalGene.id).count()
 
     return {
         "total_clinical_datasets": total_clinical_datasets,
