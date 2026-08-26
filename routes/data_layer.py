@@ -1,11 +1,18 @@
-from collections import defaultdict
+import io
 import os
-from pydantic import BaseModel, Field
+from collections import defaultdict
 from typing import List
 from urllib.parse import quote_plus
+from pydantic import BaseModel, Field
 from fastapi import APIRouter, HTTPException, Depends, Query
-from sqlalchemy import create_engine, select, or_, and_
+from fastapi.responses import StreamingResponse
+from sqlalchemy import create_engine, select, or_, and_, func
+import numpy as np
 import pandas as pd
+from PIL import Image, ImageDraw
+from sklearn.decomposition import PCA
+from sklearn.cluster import MiniBatchKMeans
+
 from database_session import get_db_session
 from models.tables import (
     Dataset,
@@ -18,6 +25,9 @@ from models.tables import (
     ClinicalSample,
     ClinicalAntigen,
     ClinicalProbe,
+    ClinicalSlide,
+    ClinicalTile,
+    ClinicalEmbedding,
 )
 from models.data_layers import pre_clinical_molecular_layers, clinical_molecular_layers
 
@@ -389,3 +399,292 @@ async def get_treatment_response(
             )
 
     return result
+
+
+SVS_STORAGE_PATH = os.getenv("SVS_STORAGE_PATH", "/mnt/slides")
+
+
+def l2norm(X: np.ndarray) -> np.ndarray:
+    """L2-normalize rows of feature matrix (reused from leiden_archetypes_resection.py)."""
+    n = np.linalg.norm(X, axis=1, keepdims=True)
+    n[n == 0] = 1.0
+    return X / n
+
+
+def create_placeholder_tile(slide_id: str, x: int, y: int, size: int = 512) -> io.BytesIO:
+    """Generate a clean visual placeholder tile when physical .svs is not yet mounted."""
+    img = Image.new("RGB", (size, size), color=(244, 246, 248))
+    draw = ImageDraw.Draw(img)
+
+    # Frame border
+    draw.rectangle([0, 0, size - 1, size - 1], outline=(203, 213, 225), width=3)
+    # Subtle inner grid
+    for step in range(64, size, 64):
+        draw.line([(step, 0), (step, size)], fill=(235, 240, 245), width=1)
+        draw.line([(0, step), (size, step)], fill=(235, 240, 245), width=1)
+
+    lines = [
+        "H&E Tile Preview",
+        f"Slide: {slide_id[:26]}",
+        f"Coord: (X: {x}, Y: {y})",
+        f"Resolution: {size}x{size} px",
+        "",
+        "[ Ready for SVS Mount ]",
+        "gs://portal-raw-slides/TCGA_SARC",
+    ]
+
+    y_pos = 130
+    for line in lines:
+        if line.startswith("["):
+            color = (37, 99, 235)  # blue
+        elif "Preview" in line:
+            color = (15, 23, 42)   # dark slate
+        else:
+            color = (71, 85, 105)  # muted slate
+        draw.text((size // 2, y_pos), line, fill=color, anchor="mm")
+        y_pos += 30
+
+    buf = io.BytesIO()
+    img.save(buf, format="JPEG", quality=85)
+    buf.seek(0)
+    return buf
+
+
+def extract_tile_from_svs(slide_id: str, x: int, y: int, size: int = 512) -> io.BytesIO | None:
+    """Crop a 512x512 tile from SVS file via OpenSlide."""
+    try:
+        import openslide
+    except ImportError:
+        return None
+
+    if not os.path.exists(SVS_STORAGE_PATH):
+        return None
+
+    candidates = [
+        os.path.join(SVS_STORAGE_PATH, f"{slide_id}.svs"),
+        os.path.join(SVS_STORAGE_PATH, f"{slide_id}_Surgical_Resection.svs"),
+    ]
+    svs_file = None
+    for cand in candidates:
+        if os.path.isfile(cand):
+            svs_file = cand
+            break
+
+    if not svs_file and os.path.isdir(SVS_STORAGE_PATH):
+        matches = [
+            f for f in os.listdir(SVS_STORAGE_PATH)
+            if f.startswith(slide_id) and f.endswith(".svs")
+        ]
+        if matches:
+            svs_file = os.path.join(SVS_STORAGE_PATH, matches[0])
+
+    if not svs_file or not os.path.isfile(svs_file):
+        return None
+
+    try:
+        slide = openslide.OpenSlide(svs_file)
+        tile = slide.read_region((int(x), int(y)), 0, (size, size)).convert("RGB")
+        slide.close()
+        buf = io.BytesIO()
+        tile.save(buf, format="JPEG", quality=85)
+        buf.seek(0)
+        return buf
+    except Exception as e:
+        print(f"OpenSlide tile extraction error for {slide_id} ({x}, {y}): {e}")
+        return None
+
+
+@router.get(
+    "/imaging/clustering",
+    summary="Compute 2D latent space and clusters for subsampled H&E tile embeddings",
+)
+async def get_imaging_clustering(
+    dataset_id: int = Query(..., description="Dataset ID to pull H&E imaging data from", example=6),
+    sample_size: int = Query(5000, description="Max tiles to subsample across dataset"),
+    n_clusters: int = Query(10, description="Number of clusters / archetypes"),
+    session=Depends(get_db_session),
+):
+    dataset = session.query(Dataset).filter(Dataset.id == dataset_id).first()
+    if not dataset:
+        raise HTTPException(status_code=404, detail="Dataset not found")
+
+    if not dataset.clinical:
+        raise HTTPException(
+            status_code=400,
+            detail="H&E imaging data is only available for clinical datasets"
+        )
+
+    try:
+        # 1. Fetch all slide IDs belonging to this dataset
+        slide_rows = (
+            session.query(ClinicalSlide.id, ClinicalSlide.sample_id, ClinicalSlide.n_tiles)
+            .filter(ClinicalSlide.dataset_id == dataset_id)
+            .all()
+        )
+        if not slide_rows:
+            raise HTTPException(
+                status_code=404,
+                detail=f"No clinical slides found for dataset {dataset_id}"
+            )
+
+        slide_ids = [r[0] for r in slide_rows]
+        n_slides = len(slide_rows)
+        tiles_per_slide = max(5, min(25, sample_size // n_slides))
+
+        # Query up to `tiles_per_slide` from EVERY slide across the dataset using indexed slide_id
+        query = (
+            session.query(
+                ClinicalTile.id.label("tile_id"),
+                ClinicalTile.slide_id,
+                ClinicalTile.tile_index,
+                ClinicalTile.x,
+                ClinicalTile.y,
+                ClinicalSample.id.label("patient_id"),
+                ClinicalSample.histology,
+                ClinicalSample.tissue,
+                ClinicalSample.race,
+                ClinicalSample.sex,
+                ClinicalSample.age,
+                ClinicalEmbedding.embedding,
+            )
+            .join(ClinicalSlide, ClinicalSlide.id == ClinicalTile.slide_id)
+            .join(ClinicalSample, ClinicalSample.id == ClinicalSlide.sample_id)
+            .join(
+                ClinicalEmbedding,
+                and_(
+                    ClinicalEmbedding.slide_id == ClinicalTile.slide_id,
+                    ClinicalEmbedding.tile_id == ClinicalTile.id,
+                ),
+            )
+            .filter(ClinicalSlide.dataset_id == dataset_id)
+            .filter(ClinicalTile.slide_id.in_(slide_ids))
+            .filter(ClinicalEmbedding.slide_id.in_(slide_ids))
+            .filter(ClinicalTile.tile_index < tiles_per_slide)
+            .filter(ClinicalEmbedding.kind == "tile")
+        )
+        rows = query.all()
+        if not rows:
+            raise HTTPException(
+                status_code=404,
+                detail=f"No tile embeddings found in dataset {dataset_id}"
+            )
+
+        # 1. Unpack binary float32 embeddings (1536-d)
+        X = np.vstack([np.frombuffer(r.embedding, dtype=np.float32) for r in rows])
+
+        # 2. L2-Normalize (cosine geometry on unit sphere)
+        X_norm = l2norm(X)
+
+        # 3. PCA 1536 -> 128 components
+        n_pc = min(128, X_norm.shape[0], X_norm.shape[1])
+        pca = PCA(n_components=n_pc, random_state=42)
+        Xp = pca.fit_transform(X_norm).astype(np.float32)
+
+        # 4. MiniBatchKMeans / Centroid discovery
+        k = max(2, min(n_clusters, len(Xp)))
+        kmeans = MiniBatchKMeans(n_clusters=k, random_state=42, batch_size=min(1024, len(Xp)))
+        cluster_labels = kmeans.fit_predict(Xp)
+        centroids = kmeans.cluster_centers_
+
+        # 5. Top 2 Principal Components for 2D Scatter visualization
+        umap1 = Xp[:, 0]
+        umap2 = Xp[:, 1] if Xp.shape[1] > 1 else np.zeros_like(umap1)
+
+        # 6. Euclidean distance to cluster centroid
+        distances = np.linalg.norm(Xp - centroids[cluster_labels], axis=1)
+
+        points = []
+        cluster_tile_map = defaultdict(list)
+
+        for i, r in enumerate(rows):
+            cid = int(cluster_labels[i])
+            cname = f"Cluster {cid}"
+            dist = float(distances[i])
+
+            point_data = {
+                "tile_id": int(r.tile_id),
+                "slide_id": str(r.slide_id),
+                "patient_id": str(r.patient_id),
+                "tile_index": int(r.tile_index) if r.tile_index is not None else i,
+                "x": float(r.x),
+                "y": float(r.y),
+                "umap1": float(umap1[i]),
+                "umap2": float(umap2[i]),
+                "cluster_id": cid,
+                "cluster": cname,
+                "dist_to_centroid": dist,
+                "histology": r.histology or "Unknown",
+                "tissue": r.tissue or "Soft Tissue",
+                "race": r.race,
+                "sex": r.sex,
+                "age": r.age,
+                "crop_url": f"/api/data-layer/imaging/tile-crop?slide_id={r.slide_id}&x={int(r.x)}&y={int(r.y)}&size=512",
+            }
+            points.append(point_data)
+            cluster_tile_map[cid].append((dist, point_data))
+
+        # 7. Build cluster summaries & pick top 12 exemplar tiles per cluster
+        clusters = []
+        for cid in range(k):
+            cname = f"Cluster {cid}"
+            tiles_in_cluster = cluster_tile_map.get(cid, [])
+            tiles_in_cluster.sort(key=lambda item: item[0])  # rank by dist_to_centroid ascending
+
+            seen_patients = set()
+            exemplars = []
+            # Round 1: Diversify by unique patients
+            for dist, p in tiles_in_cluster:
+                if p["patient_id"] not in seen_patients:
+                    exemplars.append(p)
+                    seen_patients.add(p["patient_id"])
+                if len(exemplars) >= 12:
+                    break
+
+            # Round 2: Fill remaining slots up to 12
+            if len(exemplars) < 12:
+                for dist, p in tiles_in_cluster:
+                    if p not in exemplars:
+                        exemplars.append(p)
+                    if len(exemplars) >= 12:
+                        break
+
+            histologies = [p["histology"] for _, p in tiles_in_cluster if p["histology"]]
+            dominant_hist = max(set(histologies), key=histologies.count) if histologies else "N/A"
+
+            clusters.append({
+                "cluster_id": cid,
+                "name": cname,
+                "tile_count": len(tiles_in_cluster),
+                "patient_count": len(set(p["patient_id"] for _, p in tiles_in_cluster)),
+                "dominant_histology": dominant_hist,
+                "exemplars": exemplars,
+            })
+
+        return {
+            "points": points,
+            "clusters": clusters,
+            "total_tiles": len(points),
+            "n_clusters": k,
+        }
+
+    except Exception as e:
+        print(f"Error in get_imaging_clustering (dataset_id={dataset_id}): {e}")
+        raise HTTPException(status_code=500, detail=f"Imaging clustering error: {str(e)}")
+
+
+@router.get(
+    "/imaging/tile-crop",
+    summary="On-demand 512x512 tile crop from .svs whole slide image",
+)
+async def crop_tile_image(
+    slide_id: str = Query(..., description="Slide barcode / ID"),
+    x: int = Query(..., description="Top-left Level 0 X coordinate"),
+    y: int = Query(..., description="Top-left Level 0 Y coordinate"),
+    size: int = Query(512, description="Crop size in pixels"),
+):
+    buf = extract_tile_from_svs(slide_id, x, y, size)
+    if buf is None:
+        buf = create_placeholder_tile(slide_id, x, y, size)
+
+    return StreamingResponse(buf, media_type="image/jpeg")
+

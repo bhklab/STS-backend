@@ -1,5 +1,5 @@
 from models.tables import PreClinicalRnaSeq, PreClinicalCopyNumberVariation, PreClinicalMicroarray, PreClinicalTreatmentResponse
-from models.tables import ClinicalRNA, ClinicalCNV, ClinicalMiRNA, ClinicalMutation, ClinicalRPPA, ClinicalMethylation
+from models.tables import ClinicalRNA, ClinicalCNV, ClinicalMiRNA, ClinicalMutation, ClinicalRPPA, ClinicalMethylation, ClinicalSlide
 
 pre_clinical_molecular_layers = {
     "RNA-seq": PreClinicalRnaSeq,
@@ -20,6 +20,7 @@ clinical_molecular_layers = {
     "Mutation": ClinicalMutation,
     "RPPA": ClinicalRPPA,
     "Methylation": ClinicalMethylation,
+	"Imaging": ClinicalSlide
 }
 
 clinical_data_layers = {

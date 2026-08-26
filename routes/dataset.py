@@ -264,7 +264,6 @@ async def get_all_data_layers(
     clinical = get_clinical_status(dataset_id, session)
 
     if clinical:
-        # ── Clinical: check each layer by joining against clinical_sample ─
         for data_layer_name, data_layer_model in clinical_data_layers.items():
             row = (
                 session.query(data_layer_model.sample_id)
