@@ -11,8 +11,10 @@ from models.tables import (
     Dataset,
     PreClinicalSample,
     PreClinicalCellLine,
+    PreClinicalCellLineInfo,
     PreClinicalGene,
     PreClinicalTreatmentResponse,
+    PreClinicalDrug,
     ClinicalSample,
     ClinicalAntigen,
     ClinicalProbe,
@@ -74,6 +76,9 @@ async def get_molecular_profile(
                         ClinicalSample.tissue.label("tissue"),
                         ClinicalSample.histology.label("histology"),
                         data_layer_model.value,
+                        ClinicalSample.race,
+                        ClinicalSample.sex,
+                        ClinicalSample.age,
                     )
                     .join(ClinicalSample, data_layer_model.sample_id == ClinicalSample.id)
                     .join(PreClinicalGene, PreClinicalGene.id == data_layer_model.gene_id)
@@ -81,12 +86,15 @@ async def get_molecular_profile(
                     .filter(data_layer_model.gene_id.in_(gene))
                     .all()
                 )
-                for gene_name, sample, tissue, histology, value in rows:
+                for gene_name, sample, tissue, histology, value, race, sex, age in rows:
                     result[gene_name].append({
                         "sample": sample,
                         "value": value,
                         "tissue": tissue,
                         "histology": histology,
+                        "race": race,
+                        "sex": sex,
+                        "age": age,
                     })
 
             elif molecular_profile == "Mutation":
@@ -98,6 +106,9 @@ async def get_molecular_profile(
                         ClinicalSample.histology.label("histology"),
                         data_layer_model.mutation,
                         data_layer_model.oncoprint,
+                        ClinicalSample.race,
+                        ClinicalSample.sex,
+                        ClinicalSample.age,
                     )
                     .join(ClinicalSample, data_layer_model.sample_id == ClinicalSample.id)
                     .join(PreClinicalGene, PreClinicalGene.id == data_layer_model.gene_id)
@@ -105,13 +116,16 @@ async def get_molecular_profile(
                     .filter(data_layer_model.gene_id.in_(gene))
                     .all()
                 )
-                for gene_name, sample, tissue, histology, mutation, oncoprint in rows:
+                for gene_name, sample, tissue, histology, mutation, oncoprint, race, sex, age in rows:
                     result[gene_name].append({
                         "sample": sample,
                         "mutation": mutation,
                         "oncoprint": oncoprint,
                         "tissue": tissue,
                         "histology": histology,
+                        "race": race,
+                        "sex": sex,
+                        "age": age,
                     })
 
             elif molecular_profile == "RPPA":
@@ -124,6 +138,9 @@ async def get_molecular_profile(
                         ClinicalSample.tissue.label("tissue"),
                         ClinicalSample.histology.label("histology"),
                         data_layer_model.value,
+                        ClinicalSample.race,
+                        ClinicalSample.sex,
+                        ClinicalSample.age,
                     )
                     .join(ClinicalSample, data_layer_model.sample_id == ClinicalSample.id)
                     .join(ClinicalAntigen, ClinicalAntigen.id == data_layer_model.antigen_id)
@@ -131,8 +148,9 @@ async def get_molecular_profile(
                     .filter(data_layer_model.antigen_id.in_(gene))
                     .all()
                 )
-                for antigen_id, peptide_target, peptide_target_gene, sample, tissue, histology, value in rows:
-                    result[antigen_id].append({
+                for antigen_id, peptide_target, peptide_target_gene, sample, tissue, histology, value, race, sex, age in rows:
+                    key = peptide_target or antigen_id
+                    result[key].append({
                         "sample": sample,
                         "value": value,
                         "tissue": tissue,
@@ -140,6 +158,9 @@ async def get_molecular_profile(
                         "antigen_id": antigen_id,
                         "peptide_target": peptide_target,
                         "peptide_target_gene": peptide_target_gene,
+                        "race": race,
+                        "sex": sex,
+                        "age": age,
                     })
 
             elif molecular_profile == "MiRNA":
@@ -150,18 +171,24 @@ async def get_molecular_profile(
                         ClinicalSample.tissue.label("tissue"),
                         ClinicalSample.histology.label("histology"),
                         data_layer_model.value,
+                        ClinicalSample.race,
+                        ClinicalSample.sex,
+                        ClinicalSample.age,
                     )
                     .join(ClinicalSample, data_layer_model.sample_id == ClinicalSample.id)
                     .filter(ClinicalSample.dataset_id == dataset_id)
                     .filter(data_layer_model.id.in_(gene))
                     .all()
                 )
-                for mirna_id, sample, tissue, histology, value in rows:
+                for mirna_id, sample, tissue, histology, value, race, sex, age in rows:
                     result[mirna_id].append({
                         "sample": sample,
                         "value": value,
                         "tissue": tissue,
                         "histology": histology,
+                        "race": race,
+                        "sex": sex,
+                        "age": age,
                     })
 
             elif molecular_profile == "Methylation":
@@ -173,6 +200,9 @@ async def get_molecular_profile(
                         ClinicalSample.tissue.label("tissue"),
                         ClinicalSample.histology.label("histology"),
                         data_layer_model.value,
+                        ClinicalSample.race,
+                        ClinicalSample.sex,
+                        ClinicalSample.age,
                     )
                     .join(ClinicalSample, data_layer_model.sample_id == ClinicalSample.id)
                     .join(ClinicalProbe, ClinicalProbe.id == data_layer_model.probe_id)
@@ -180,14 +210,18 @@ async def get_molecular_profile(
                     .filter(data_layer_model.probe_id.in_(gene))
                     .all()
                 )
-                for probe_id, probe_name, sample, tissue, histology, value in rows:
-                    result[probe_id].append({
+                for probe_id, probe_name, sample, tissue, histology, value, race, sex, age in rows:
+                    key = probe_name or probe_id
+                    result[key].append({
                         "sample": sample,
                         "value": value,
                         "tissue": tissue,
                         "histology": histology,
                         "probe_id": probe_id,
                         "probe_name": probe_name,
+                        "race": race,
+                        "sex": sex,
+                        "age": age,
                     })
 
         except Exception as e:
@@ -209,6 +243,10 @@ async def get_molecular_profile(
                     PreClinicalSample.cell_line_name.label("cell_line"),
                     PreClinicalCellLine.tissueid.label("tissue"),
                     data_layer_model.value,
+                    PreClinicalCellLine.sex,
+                    PreClinicalCellLine.age,
+                    PreClinicalCellLineInfo.second_level,
+                    PreClinicalCellLineInfo.disease_descriptions,
                 )
                 .join(PreClinicalSample, data_layer_model.sample_id == PreClinicalSample.id)
                 .join(
@@ -218,16 +256,24 @@ async def get_molecular_profile(
                         PreClinicalSample.dataset_id == PreClinicalCellLine.dataset_id,
                     ),
                 )
+                .outerjoin(
+                    PreClinicalCellLineInfo,
+                    PreClinicalCellLine.accession == PreClinicalCellLineInfo.accession,
+                )
                 .join(PreClinicalGene, PreClinicalGene.id == data_layer_model.gene_id)
                 .filter(PreClinicalSample.dataset_id == dataset_id)
                 .filter(data_layer_model.gene_id.in_(gene))
                 .all()
             )
-            for gene_name, cell_line, tissue, value in rows:
+            for gene_name, cell_line, tissue, value, sex, age, second_level, disease_descriptions in rows:
                 result[gene_name].append({
                     "cellLine": cell_line,
                     "value": value,
                     "tissue": tissue,
+                    "sex": sex,
+                    "age": age,
+                    "second_level": second_level,
+                    "disease_descriptions": disease_descriptions,
                 })
         except Exception as e:
             print(f"Error querying molecular profile for {molecular_profile} (dataset_id={dataset_id}): {e}")
@@ -291,6 +337,13 @@ async def get_treatment_response(
                     PreClinicalTreatmentResponse.cid,
                     PreClinicalTreatmentResponse.ic50_recomputed,
                     PreClinicalTreatmentResponse.acc_recomputed,
+                    PreClinicalCellLine.sex,
+                    PreClinicalCellLine.age,
+                    PreClinicalCellLineInfo.second_level,
+                    PreClinicalCellLineInfo.disease_descriptions,
+                    PreClinicalDrug.fda_approval,
+                    PreClinicalDrug.mechanism_action_type,
+                    PreClinicalDrug.mechanism_of_action,
                 )
                 .join(
                     PreClinicalCellLine,
@@ -299,6 +352,14 @@ async def get_treatment_response(
                         PreClinicalTreatmentResponse.dataset_id == PreClinicalCellLine.dataset_id,
                     ),
                 )
+                .outerjoin(
+                    PreClinicalCellLineInfo,
+                    PreClinicalCellLine.accession == PreClinicalCellLineInfo.accession,
+                )
+                .outerjoin(
+                    PreClinicalDrug,
+                    PreClinicalTreatmentResponse.cid == PreClinicalDrug.cid,
+                )
                 .filter(PreClinicalTreatmentResponse.dataset_id == dataset_id)
             )
 
@@ -306,13 +367,20 @@ async def get_treatment_response(
                 query = query.filter(PreClinicalTreatmentResponse.treatment_id.in_(drug_list))
 
             rows = query.all()
-            for drug_name, cell_line, tissue, cid, ic50_recomputed, acc_recomputed in rows:
+            for drug_name, cell_line, tissue, cid, ic50_recomputed, acc_recomputed, sex, age, second_level, disease_descriptions, fda_approval, mechanism_action_type, mechanism_of_action in rows:
                 result[drug_name].append({
                     "cellLine": cell_line,
                     "ic50_recomputed": ic50_recomputed,
                     "aac_recomputed": acc_recomputed,
                     "tissue": tissue,
                     "cid": cid,
+                    "sex": sex,
+                    "age": age,
+                    "second_level": second_level,
+                    "disease_descriptions": disease_descriptions,
+                    "fda_approval": fda_approval,
+                    "mechanism_action_type": mechanism_action_type,
+                    "mechanism_of_action": mechanism_of_action,
                 })
         except Exception as e:
             print(f"Error querying treatment response (dataset_id={dataset_id}): {e}")

@@ -1,15 +1,19 @@
 from fastapi import APIRouter, HTTPException, Depends, Query
-from sqlalchemy import func, distinct
+from sqlalchemy import func, distinct, and_
 import pandas as pd
 from database_session import get_db_session
 from models.tables import (
     Dataset,
     PreClinicalSample,
+    PreClinicalCellLine,
+    PreClinicalCellLineInfo,
     PreClinicalTreatmentResponse,
+    PreClinicalDrug,
     PreClinicalGene,
     ClinicalSample,
     ClinicalAntigen,
     ClinicalProbe,
+    ClinicalMiRNA,
 )
 from models.data_layers import (
     pre_clinical_data_layers,
@@ -314,50 +318,28 @@ async def get_all_genes(
             return []
 
         if molecular_profile == "RPPA":
-            antigen_sub = (
-                session.query(model.antigen_id)
-                .join(ClinicalSample, model.sample_id == ClinicalSample.id)
-                .filter(ClinicalSample.dataset_id == dataset_id)
-                .distinct()
-                .subquery()
-            )
             rows = (
                 session.query(ClinicalAntigen.id, ClinicalAntigen.peptide_target)
-                .join(antigen_sub, ClinicalAntigen.id == antigen_sub.c.antigen_id)
                 .all()
             )
             return [{"gene_id": row[0], "name": row[1] or row[0]} for row in rows]
 
         elif molecular_profile == "MiRNA":
             rows = (
-                session.query(model.id)
-                .join(ClinicalSample, model.sample_id == ClinicalSample.id)
-                .filter(ClinicalSample.dataset_id == dataset_id)
+                session.query(ClinicalMiRNA.id)
                 .distinct()
                 .all()
             )
             return [{"gene_id": row[0], "name": row[0]} for row in rows]
 
         elif molecular_profile == "Methylation":
-            probe_sub = (
-                session.query(model.probe_id)
-                .join(ClinicalSample, model.sample_id == ClinicalSample.id)
-                .filter(ClinicalSample.dataset_id == dataset_id)
-                .distinct()
-                .subquery()
-            )
             rows = (
                 session.query(ClinicalProbe.id, ClinicalProbe.name)
-                .join(probe_sub, ClinicalProbe.id == probe_sub.c.probe_id)
                 .all()
             )
             return [{"gene_id": row[0], "name": row[1] or row[0]} for row in rows]
 
-        else:
-            # RNA-seq, CNV, Mutation — gene_id based
-            if not hasattr(model, "gene_id"):
-                return []
-
+        elif molecular_profile == "Mutation":
             gene_sub_query = (
                 session.query(model.gene_id)
                 .join(ClinicalSample, model.sample_id == ClinicalSample.id)
@@ -369,6 +351,13 @@ async def get_all_genes(
             rows = (
                 session.query(gene_sub_query.c.gene_id, PreClinicalGene.name)
                 .join(PreClinicalGene, PreClinicalGene.id == gene_sub_query.c.gene_id)
+                .all()
+            )
+
+        else:
+            # RNA-seq, CNV — whole-genome profiling covering all reference genes
+            rows = (
+                session.query(PreClinicalGene.id, PreClinicalGene.name)
                 .all()
             )
 
