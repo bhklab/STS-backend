@@ -1,0 +1,10 @@
+.git
+.gitattributes
+.gitignore
+.pixi
+__pycache__
+*.pyc
+.env
+env.yaml
+.DS_Store
+data/

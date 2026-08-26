@@ -7,7 +7,7 @@ version = "0.1.0"
 
 [tasks]
 start = "uvicorn main:app --reload"
-prod_start = "gunicorn main:app --workers 1 --worker-class uvicorn.workers.UvicornWorker --bind 127.0.0.1:8000"
+prod_start = "gunicorn main:app --workers 1 --worker-class uvicorn.workers.UvicornWorker --bind 0.0.0.0:8080"
 
 [dependencies]
 python = ">=3.14.6,<3.15"
