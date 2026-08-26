@@ -402,6 +402,7 @@ async def get_treatment_response(
 
 
 SVS_STORAGE_PATH = os.getenv("SVS_STORAGE_PATH", "/mnt/slides")
+TILE_CACHE_DIR = os.getenv("TILE_CACHE_DIR", "/tmp/sts_tile_cache")
 
 
 def l2norm(X: np.ndarray) -> np.ndarray:
@@ -425,12 +426,9 @@ def create_placeholder_tile(slide_id: str, x: int, y: int, size: int = 512) -> i
 
     lines = [
         "H&E Tile Preview",
-        f"Slide: {slide_id[:26]}",
+        f"Slide: {slide_id}",
         f"Coord: (X: {x}, Y: {y})",
-        f"Resolution: {size}x{size} px",
-        "",
-        "[ Ready for SVS Mount ]",
-        "gs://portal-raw-slides/TCGA_SARC",
+        f"Size: {size}x{size} px"
     ]
 
     y_pos = 130
@@ -450,47 +448,94 @@ def create_placeholder_tile(slide_id: str, x: int, y: int, size: int = 512) -> i
     return buf
 
 
-def extract_tile_from_svs(slide_id: str, x: int, y: int, size: int = 512) -> io.BytesIO | None:
-    """Crop a 512x512 tile from SVS file via OpenSlide."""
-    try:
-        import openslide
-    except ImportError:
-        return None
+def find_svs_file(slide_id: str) -> str | None:
+    """Locate the .svs file across possible FUSE mount paths and subdirectories."""
+    clean_id = os.path.basename(slide_id).replace(".svs", "")
 
-    if not os.path.exists(SVS_STORAGE_PATH):
-        return None
-
-    candidates = [
-        os.path.join(SVS_STORAGE_PATH, f"{slide_id}.svs"),
-        os.path.join(SVS_STORAGE_PATH, f"{slide_id}_Surgical_Resection.svs"),
+    # Common mount search directories
+    search_dirs = [
+        SVS_STORAGE_PATH,
+        os.path.join(SVS_STORAGE_PATH, "TCGA_SARC"),
+        "/mnt/slides",
+        "/mnt/slides/TCGA_SARC",
+        os.path.expanduser("~/mnt/slides"),
+        os.path.expanduser("~/mnt/slides/TCGA_SARC"),
+        "./slides",
+        "./slides/TCGA_SARC",
     ]
-    svs_file = None
-    for cand in candidates:
-        if os.path.isfile(cand):
-            svs_file = cand
-            break
 
-    if not svs_file and os.path.isdir(SVS_STORAGE_PATH):
-        matches = [
-            f for f in os.listdir(SVS_STORAGE_PATH)
-            if f.startswith(slide_id) and f.endswith(".svs")
-        ]
-        if matches:
-            svs_file = os.path.join(SVS_STORAGE_PATH, matches[0])
+    for base_dir in search_dirs:
+        if not os.path.isdir(base_dir):
+            continue
 
+        # 1. Exact match: {clean_id}.svs
+        exact_path = os.path.join(base_dir, f"{clean_id}.svs")
+        if os.path.isfile(exact_path):
+            return exact_path
+
+        # 2. Match with barcode suffix: {clean_id}_Surgical_Resection.svs
+        alt_path = os.path.join(base_dir, f"{clean_id}_Surgical_Resection.svs")
+        if os.path.isfile(alt_path):
+            return alt_path
+
+        # 3. Search directory for matching prefix or UUID
+        try:
+            for f in os.listdir(base_dir):
+                if f.endswith(".svs"):
+                    f_name = f.replace(".svs", "")
+                    if clean_id == f_name or clean_id.startswith(f_name) or f_name.startswith(clean_id):
+                        return os.path.join(base_dir, f)
+                    if "." in clean_id:
+                        barcode, uuid = clean_id.split(".", 1)
+                        if barcode in f or uuid in f:
+                            return os.path.join(base_dir, f)
+        except Exception:
+            pass
+
+    return None
+
+
+def extract_tile_from_svs(slide_id: str, x: int, y: int, size: int = 512) -> io.BytesIO | None:
+    """Crop a region from SVS file via OpenSlide with local disk caching."""
+    # 1. Check local tile cache first
+    cache_filepath = None
+    try:
+        os.makedirs(TILE_CACHE_DIR, exist_ok=True)
+        cache_filename = f"{slide_id}_{x}_{y}_{size}.jpg".replace("/", "_")
+        cache_filepath = os.path.join(TILE_CACHE_DIR, cache_filename)
+        if os.path.isfile(cache_filepath) and os.path.getsize(cache_filepath) > 0:
+            with open(cache_filepath, "rb") as f:
+                return io.BytesIO(f.read())
+    except Exception as e:
+        print(f"Cache check warning: {e}")
+
+    # 2. Locate SVS file on FUSE mount
+    svs_file = find_svs_file(slide_id)
     if not svs_file or not os.path.isfile(svs_file):
         return None
 
+    # 3. Read region via OpenSlide
     try:
+        import openslide
         slide = openslide.OpenSlide(svs_file)
-        tile = slide.read_region((int(x), int(y)), 0, (size, size)).convert("RGB")
+        tile = slide.read_region((int(x), int(y)), 0, (int(size), int(size))).convert("RGB")
         slide.close()
+
         buf = io.BytesIO()
-        tile.save(buf, format="JPEG", quality=85)
+        tile.save(buf, format="JPEG", quality=90)
         buf.seek(0)
+
+        # Save to disk cache for instantaneous re-requests
+        if cache_filepath:
+            try:
+                with open(cache_filepath, "wb") as f:
+                    f.write(buf.getvalue())
+            except Exception:
+                pass
+
         return buf
     except Exception as e:
-        print(f"OpenSlide tile extraction error for {slide_id} ({x}, {y}): {e}")
+        print(f"OpenSlide tile extraction error for {slide_id} ({x}, {y}) from {svs_file}: {e}")
         return None
 
 
@@ -674,7 +719,7 @@ async def get_imaging_clustering(
 
 @router.get(
     "/imaging/tile-crop",
-    summary="On-demand 512x512 tile crop from .svs whole slide image",
+    summary="On-demand 512x512 tile crop from .svs whole slide image via FUSE mount",
 )
 async def crop_tile_image(
     slide_id: str = Query(..., description="Slide barcode / ID"),
@@ -686,5 +731,11 @@ async def crop_tile_image(
     if buf is None:
         buf = create_placeholder_tile(slide_id, x, y, size)
 
-    return StreamingResponse(buf, media_type="image/jpeg")
+    return StreamingResponse(
+        buf,
+        media_type="image/jpeg",
+        headers={
+            "Cache-Control": "public, max-age=604800, immutable",
+        },
+    )
 

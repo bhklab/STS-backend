@@ -20,7 +20,7 @@ clinical_molecular_layers = {
     "Mutation": ClinicalMutation,
     "RPPA": ClinicalRPPA,
     "Methylation": ClinicalMethylation,
-	"Imaging": ClinicalSlide
+	"Pathology": ClinicalSlide
 }
 
 clinical_data_layers = {

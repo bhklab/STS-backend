@@ -63,7 +63,7 @@ docker build --platform linux/amd64 -t northamerica-northeast2-docker.pkg.dev/st
 
 docker push northamerica-northeast2-docker.pkg.dev/sts-data-portal/cloud-run-source-deploy/sts-backend
 
-# 2. Deploy the built image to Cloud Run using your environment variables file
+# 2. Deploy the built image to Cloud Run with GCS FUSE volume mount for Whole Slide Images (.svs)
 gcloud run deploy sts-backend \
   --image northamerica-northeast2-docker.pkg.dev/sts-data-portal/cloud-run-source-deploy/sts-backend \
   --region northamerica-northeast2 \
@@ -74,5 +74,7 @@ gcloud run deploy sts-backend \
   --max-instances 2 \
   --concurrency 10 \
   --execution-environment gen2 \
+  --add-volume=name=slides-vol,type=cloud-storage,bucket=portal-raw-slides \
+  --add-volume-mount=volume=slides-vol,mount-path=/mnt/slides \
   --env-vars-file=env.yaml
 ```
