@@ -218,7 +218,7 @@ async def get_landing_page_dataset_statistics(
     total_clinical_datasets = session.query(Dataset).filter(Dataset.clinical == True).count()
     total_pre_clinical_samples = session.query(PreClinicalSample.id).count()
     total_clinical_samples = session.query(ClinicalSample.id).count()
-    total_drugs = session.query(PreClinicalDrug.cid).count()
+    total_drugs = session.query(func.count(distinct(PreClinicalTreatmentResponse.cid))).scalar()
     total_cell_lines = session.query(func.count(distinct(PreClinicalSample.cell_line_name))).scalar() or 0
     total_genes = session.query(PreClinicalGene.id).count()
 
