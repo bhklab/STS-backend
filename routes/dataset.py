@@ -20,6 +20,7 @@ from models.tables import (
     ClinicalMutation,
     ClinicalRPPA,
     ClinicalMethylation,
+    ClinicalSlide,
 )
 from models.data_layers import (
     pre_clinical_data_layers,
@@ -107,6 +108,7 @@ async def get_all_dataset_statistics(
         "Mutation": set(r[0] for r in session.query(ClinicalSample.dataset_id).join(ClinicalMutation, ClinicalMutation.sample_id == ClinicalSample.id).distinct().all()),
         "RPPA": set(r[0] for r in session.query(ClinicalSample.dataset_id).join(ClinicalRPPA, ClinicalRPPA.sample_id == ClinicalSample.id).distinct().all()),
         "Methylation": set(r[0] for r in session.query(ClinicalSample.dataset_id).join(ClinicalMethylation, ClinicalMethylation.sample_id == ClinicalSample.id).distinct().all()),
+        "Pathology": set(r[0] for r in session.query(ClinicalSlide.dataset_id).distinct().all()),
     }
 
     preclinical_datasets = []
@@ -152,10 +154,33 @@ async def get_all_dataset_statistics(
             else:
                 total_genes = 0
 
+            total_slides = 0
+            total_tiles = 0
+            if "Pathology" in avail_layers:
+                total_slides = session.query(func.count(ClinicalSlide.id)).filter(ClinicalSlide.dataset_id == d.id).scalar() or 0
+                total_tiles = session.query(func.sum(ClinicalSlide.n_tiles)).filter(ClinicalSlide.dataset_id == d.id).scalar() or 0
+                emb_res = session.query(ClinicalSlide.embedding_dim).filter(ClinicalSlide.dataset_id == d.id).first()
+
+            # Calculate histology and sex counts across all samples for this clinical dataset
+            histology_counts = {}
+            sex_counts = {}
+            samples = session.query(ClinicalSample.histology, ClinicalSample.sex).filter(ClinicalSample.dataset_id == d.id).all()
+            for s in samples:
+                h = s.histology if s.histology else "Unknown"
+                histology_counts[h] = histology_counts.get(h, 0) + 1
+
+                sx = s.sex if s.sex else "Unknown"
+                if sx == "M":
+                    sx = "Male"
+                elif sx == "F":
+                    sx = "Female"
+                sex_counts[sx] = sex_counts.get(sx, 0) + 1
+
             clinical_datasets.append({
                 "id": d.id,
                 "name": d.name,
                 "description": d.description,
+                "software": d.software,
                 "version": d.version,
                 "link": d.link,
                 "publication": d.publication,
@@ -165,6 +190,10 @@ async def get_all_dataset_statistics(
                 "total_genes": total_genes,
                 "total_drugs": 0,
                 "total_cell_lines": 0,
+                "total_slides": total_slides,
+                "total_tiles": total_tiles,
+                "histology_counts": histology_counts,
+                "sex_counts": sex_counts,
                 "data_layers": avail_layers,
             })
         else:
@@ -189,6 +218,7 @@ async def get_all_dataset_statistics(
                 "id": d.id,
                 "name": d.name,
                 "description": d.description,
+				"software": d.software,
                 "version": d.version,
                 "link": d.link,
                 "publication": d.publication,
