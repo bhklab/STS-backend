@@ -312,8 +312,6 @@ async def get_all_data_layers(
                     .filter(data_layer_model.dataset_id == dataset_id)
                     .first()
                 )
-                if row:
-                    available_layers.append(data_layer_name)
             else:
                 row = (
                     session.query(data_layer_model.id)
