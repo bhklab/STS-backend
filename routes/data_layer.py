@@ -395,7 +395,7 @@ async def get_treatment_response(
         except Exception as e:
             print(f"Error querying treatment response (dataset_id={dataset_id}): {e}")
             raise HTTPException(
-                status_code=404, detail=f"Treatment response error: {e}"
+                status_code=500, detail="Error querying treatment response data"
             )
 
     return result
@@ -714,7 +714,7 @@ async def get_imaging_clustering(
 
     except Exception as e:
         print(f"Error in get_imaging_clustering (dataset_id={dataset_id}): {e}")
-        raise HTTPException(status_code=500, detail=f"Imaging clustering error: {str(e)}")
+        raise HTTPException(status_code=500, detail="Error retrieving imaging clustering data")
 
 
 @router.get(

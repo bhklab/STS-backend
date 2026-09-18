@@ -78,3 +78,5 @@ gcloud run deploy sts-backend \
   --add-volume-mount=volume=slides-vol,mount-path=/mnt/slides \
   --env-vars-file=env.yaml
 ```
+
+# TODO: For production security, mount DATABASE_PASS from Google Secret Manager with --set-secrets

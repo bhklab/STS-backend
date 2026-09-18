@@ -8,7 +8,7 @@ db_port = os.getenv("DB_PORT") or os.getenv("DATABASE_PORT") or "3306"
 engine = create_engine(
     f"mysql+pymysql://{os.getenv('DATABASE_USER')}:{password_cleaned}"
     f"@{os.getenv('DATABASE_IP')}:{db_port}/{os.getenv('SELECTED_DB')}",
-    echo=True,
+    echo=os.getenv("SQL_ECHO", "false").lower() == "true",
 )
 database_session = sessionmaker(bind=engine, autoflush=False, autocommit=False)
 

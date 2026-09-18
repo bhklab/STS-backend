@@ -3,6 +3,8 @@
 !.pixi/config.toml
 __pycache__
 .DS_Store
-.env
-env.yaml
+.env*
+*.env*
+env*.yaml
+*.csv
 

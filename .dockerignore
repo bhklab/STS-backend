@@ -4,7 +4,12 @@
 .pixi
 __pycache__
 *.pyc
-.env
-env.yaml
+.env*
+*.env*
+env*.yaml
+*.csv
+*.json
+!pixi.toml
+!pixi.lock
 .DS_Store
 data/
