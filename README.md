@@ -68,14 +68,15 @@ gcloud run deploy sts-backend \
   --image northamerica-northeast2-docker.pkg.dev/sts-data-portal/cloud-run-source-deploy/sts-backend \
   --region northamerica-northeast2 \
   --allow-unauthenticated \
-  --memory 4Gi \
+  --memory 2Gi \
   --cpu 1 \
-  --min-instances 1 \
+  --min-instances 0 \
   --max-instances 2 \
-  --concurrency 10 \
+  --concurrency 4 \
   --execution-environment gen2 \
   --add-volume=name=slides-vol,type=cloud-storage,bucket=portal-raw-slides \
   --add-volume-mount=volume=slides-vol,mount-path=/mnt/slides \
+  --service-account sts-assistant@sts-data-portal.iam.gserviceaccount.com \
   --env-vars-file=env.yaml
 ```
 
