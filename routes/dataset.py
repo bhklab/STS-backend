@@ -290,8 +290,13 @@ async def get_all_data_layers(
     ),
     session=Depends(get_db_session),
 ):
-    available_layers = []
     clinical = get_clinical_status(dataset_id, session)
+    return find_available_data_layers(dataset_id, clinical, session)
+
+
+# Plain (non-route) helper so other code, like the GraphQL schema, can reuse it.
+def find_available_data_layers(dataset_id: int, clinical: bool, session) -> list[str]:
+    available_layers = []
 
     if clinical:
         for data_layer_name, data_layer_model in clinical_data_layers.items():

@@ -6,6 +6,8 @@ from dotenv import load_dotenv
 load_dotenv(override=True)
 from routes.dataset import router as dataset_router
 from routes.data_layer import router as data_layer_router
+from routes.graphql import router as graphql_router
+from routes.assistant import router as assistant_router
 
 
 app = FastAPI(title="Soft Tissue Sarcoma Portal API", openapi_url="/api/v1/openapi.json", version=f"v{os.getenv('VERSION', '0.0.1')}")
@@ -21,6 +23,8 @@ app.add_middleware(
 api_router = APIRouter(prefix="/api")
 
 api_router.include_router(dataset_router)
+api_router.include_router(graphql_router)
+api_router.include_router(assistant_router)
 app.include_router(api_router)
 api_router.include_router(data_layer_router)
 
