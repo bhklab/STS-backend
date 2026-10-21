@@ -31,7 +31,7 @@ router = APIRouter(prefix="/assistant", tags=["AI Assistant"])
 GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-3.8-pro")
 
 # Stop after this many tool calls so a confused model can't loop forever.
-MAX_TOOL_ROUNDS = 8
+MAX_TOOL_ROUNDS = 6
 
 # Cut very large query results down so we don't overflow the model's context.
 MAX_RESULT_CHARACTERS = 20000
@@ -48,6 +48,9 @@ written against this schema (field names are camelCase):
 Rules:
 - Only use fields that exist in the schema above.
 - Ask for only the fields you need, and use a small "limit".
+- Follow links between tables with nested fields in a single query (e.g.
+  treatmentResponses {{ cellLine {{ ... }} drug {{ ... }} }}) instead of
+  running one query per table.
 - To know which data types (RNA-seq, Mutation, ...) a dataset has, use the
   dataLayers field on datasets. Don't guess this from descriptions.
 - A dataset's description and keyStudyFindings describe the original
@@ -57,7 +60,12 @@ Rules:
   study has it but it is not available in the portal.
 - Only state facts about the portal's data that came from a query result.
   If the data can't answer the question, say so plainly. Never make up data.
-- Format answers with simple Markdown only.
+- As soon as a query result answers the question, write your answer. Don't
+  run extra queries to double-check results you already have.
+- Format answers with simple Markdown only. Do not use LaTex.
+- In tables, fill in every cell of every row. Never leave a cell blank to
+  mean "same as the row above"; repeat the value instead.
+- Do not round any outputs, rather, provide the full floats
 """
 
 # Switch out format rule to this if agent output is incorrectly formatted: Format answers with simple Markdown only: headings, **bold**, and bullet or numbered lists. Do not use tables.
@@ -116,13 +124,11 @@ def chat(request: ChatRequest, session=Depends(get_db_session)):
         system_instruction=SYSTEM_INSTRUCTION,
         tools=[run_graphql_query_tool],
     )
-    # Same settings, but Gemini is not allowed to call the tool and must answer.
+    # Same settings, but with no tool at all, so Gemini has to answer.
+    # (Setting the tool mode to "NONE" was not enough: Gemini sometimes
+    # still asked for another query.)
     final_round_config = types.GenerateContentConfig(
         system_instruction=SYSTEM_INSTRUCTION,
-        tools=[run_graphql_query_tool],
-        tool_config=types.ToolConfig(
-            function_calling_config=types.FunctionCallingConfig(mode="NONE")
-        ),
     )
 
     # The running conversation we send to Gemini each round.
@@ -133,6 +139,18 @@ def chat(request: ChatRequest, session=Depends(get_db_session)):
         print(round_number)
         # On the last round, make Gemini answer with what it has found so far.
         is_last_round = round_number == MAX_TOOL_ROUNDS
+        if is_last_round:
+            conversation.append(
+                types.Content(
+                    role="user",
+                    parts=[
+                        types.Part(
+                            text="You can't run any more queries. Answer the question now "
+                            "using only the query results above."
+                        )
+                    ],
+                )
+            )
         response = client.models.generate_content(
             model=GEMINI_MODEL,
             contents=conversation,
