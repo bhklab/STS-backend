@@ -20,16 +20,146 @@ class Base(DeclarativeBase):
 
 
 """
-Clinical tables: tables related to the storage/organization of data from human
-in vivo datasets (patients in clinic).
+Shared tables: used by both clinical and pre-clinical data.
 """
 
 
-class ClinicalDataset(Base):
-    __tablename__ = "clinical_dataset"
+class Dataset(Base):
+    __tablename__ = "datasets"
 
-    id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    name: Mapped[str] = mapped_column(Text())
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    name: Mapped[str] = mapped_column(String(255), nullable=False, unique=True)
+    version: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    software: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    link: Mapped[str | None] = mapped_column(Text, nullable=True)
+    publication: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    PMID: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    key_study_findings: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Stored as TINYINT(1) in MySQL; True for clinical (patient) datasets
+    clinical: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+
+    cell_lines: Mapped[list["PreClinicalCellLine"]] = relationship(
+        back_populates="dataset",
+        cascade="all, delete-orphan",
+    )
+    samples: Mapped[list["PreClinicalSample"]] = relationship(
+        back_populates="dataset",
+        cascade="all, delete-orphan",
+        overlaps="cell_line,samples",
+    )
+    treatment_responses: Mapped[list["PreClinicalTreatmentResponse"]] = relationship(
+        back_populates="dataset",
+        cascade="all, delete-orphan",
+        overlaps="cell_line,treatment_responses",
+    )
+
+
+class Drugs(Base):
+    __tablename__ = "drugs"
+
+    # PubChem CID from pre_clinical_treatment_response.cid.
+    # This FK intentionally follows the requested direction: drugs.cid references
+    # treatment-response cid values that already exist in the loaded assay data.
+    cid: Mapped[str] = mapped_column(
+        String(255),
+        ForeignKey("pre_clinical_treatment_response.cid", ondelete="CASCADE"),
+        primary_key=True,
+    )
+
+    title: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    mapped_name: Mapped[str | None] = mapped_column(Text, nullable=True)
+    molecule_chembl_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    molecule_chembl_id_from_synonyms: Mapped[bool | None] = mapped_column(
+        Boolean, nullable=True
+    )
+    molecular_formula: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    molecular_weight: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    smiles: Mapped[str | None] = mapped_column(Text, nullable=True)
+    connectivity_smiles: Mapped[str | None] = mapped_column(Text, nullable=True)
+    inchi: Mapped[str | None] = mapped_column(Text, nullable=True)
+    inchikey: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    iupac_name: Mapped[str | None] = mapped_column(Text, nullable=True)
+    xlogp: Mapped[float | None] = mapped_column(Float, nullable=True)
+    exact_mass: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    monoisotopic_mass: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    tpsa: Mapped[float | None] = mapped_column(Float, nullable=True)
+    complexity: Mapped[float | None] = mapped_column(Float, nullable=True)
+    charge: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    h_bond_donor_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    h_bond_acceptor_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    rotatable_bond_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    heavy_atom_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    isotope_atom_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    atom_stereo_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    defined_atom_stereo_count: Mapped[int | None] = mapped_column(
+        Integer, nullable=True
+    )
+    undefined_atom_stereo_count: Mapped[int | None] = mapped_column(
+        Integer, nullable=True
+    )
+    bond_stereo_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    defined_bond_stereo_count: Mapped[int | None] = mapped_column(
+        Integer, nullable=True
+    )
+    undefined_bond_stereo_count: Mapped[int | None] = mapped_column(
+        Integer, nullable=True
+    )
+    covalent_unit_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    volume_3d: Mapped[float | None] = mapped_column(Float, nullable=True)
+    x_steric_quadrupole_3d: Mapped[float | None] = mapped_column(Float, nullable=True)
+    y_steric_quadrupole_3d: Mapped[float | None] = mapped_column(Float, nullable=True)
+    z_steric_quadrupole_3d: Mapped[float | None] = mapped_column(Float, nullable=True)
+    feature_count_3d: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    feature_acceptor_count_3d: Mapped[int | None] = mapped_column(
+        Integer, nullable=True
+    )
+    feature_donor_count_3d: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    feature_anion_count_3d: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    feature_cation_count_3d: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    feature_ring_count_3d: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    feature_hydrophobe_count_3d: Mapped[int | None] = mapped_column(
+        Integer, nullable=True
+    )
+    conformer_model_rmsd_3d: Mapped[float | None] = mapped_column(Float, nullable=True)
+    effective_rotor_count_3d: Mapped[float | None] = mapped_column(Float, nullable=True)
+    conformer_count_3d: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    fingerprint_2d: Mapped[str | None] = mapped_column(Text, nullable=True)
+    patent_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    patent_family_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    literature_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    annotation_types: Mapped[str | None] = mapped_column(Text, nullable=True)
+    annotation_type_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    chembl_max_phase: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    drug_like: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+    fda_approval: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+    date_added: Mapped[object | None] = mapped_column(DateTime, nullable=True)
+    atc_code: Mapped[str | None] = mapped_column(String(255), nullable=True)
+
+    # First object from the AnnotationDB mechanisms list, if present.
+    mechanism_molecule_chembl_id: Mapped[str | None] = mapped_column(
+        String(255), nullable=True
+    )
+    mechanism_parent_molecule_chembl_id: Mapped[str | None] = mapped_column(
+        String(255), nullable=True
+    )
+    mechanism_action_type: Mapped[str | None] = mapped_column(
+        String(255), nullable=True
+    )
+    mechanism_of_action: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+
+class PreClinicalGene(Base):
+    __tablename__ = "pre_clinical_gene"
+
+    id: Mapped[str] = mapped_column(String(255), primary_key=True)
+    name: Mapped[str | None] = mapped_column(String(255), nullable=True)
+
+
+"""
+Clinical tables: tables related to the storage/organization of data from human
+in vivo datasets (patients in clinic).
+"""
 
 
 class ClinicalSample(Base):
@@ -40,14 +170,20 @@ class ClinicalSample(Base):
         Integer,
         ForeignKey("datasets.id"),
     )
-    race: Mapped[str | None] = mapped_column(String(30), nullable=True) # race_standardized
-    ethnicity: Mapped[str | None] = mapped_column(String(30), nullable=True) # ethnicity_standardized
-    sex: Mapped[str | None] = mapped_column(String(1), nullable=True) # sex_curated
-    age: Mapped[int | None] = mapped_column(Integer, nullable=True) # age_curated
-    histology: Mapped[str | None] = mapped_column(String(50), nullable=True) # histo
-    tissue: Mapped[str | None] = mapped_column(String(50), nullable=True) # cancer_type
-    tissue_origin: Mapped[str | None] = mapped_column(String(100), nullable=True) # tissue_or_organ_of_origin
-    
+    race: Mapped[str | None] = mapped_column(
+        String(30), nullable=True
+    )  # race_standardized
+    ethnicity: Mapped[str | None] = mapped_column(
+        String(30), nullable=True
+    )  # ethnicity_standardized
+    sex: Mapped[str | None] = mapped_column(String(1), nullable=True)  # sex_curated
+    age: Mapped[int | None] = mapped_column(Integer, nullable=True)  # age_curated
+    histology: Mapped[str | None] = mapped_column(String(50), nullable=True)  # histo
+    tissue: Mapped[str | None] = mapped_column(String(50), nullable=True)  # cancer_type
+    tissue_origin: Mapped[str | None] = mapped_column(
+        String(100), nullable=True
+    )  # tissue_or_organ_of_origin
+
 
 class ClinicalAntigen(Base):
     __tablename__ = "clinical_antigen"
@@ -55,7 +191,7 @@ class ClinicalAntigen(Base):
     id: Mapped[str] = mapped_column(
         String(100),
         primary_key=True,
-    ) # Ex. AGID00100
+    )  # Ex. AGID00100
     catalogue_number: Mapped[str | None] = mapped_column(
         String(255),
         nullable=True,
@@ -77,7 +213,7 @@ class ClinicalProbe(Base):
     id: Mapped[str] = mapped_column(
         String(100),
         primary_key=True,
-    ) # Ex. cg13869341
+    )  # Ex. cg13869341
     name: Mapped[str | None] = mapped_column(
         String(255),
         nullable=True,
@@ -100,7 +236,7 @@ class ClinicalRNA(Base):
     value: Mapped[float | None] = mapped_column(
         Float,
         nullable=True,
-    ) # tpm_unstrand matrix
+    )  # tpm_unstrand matrix
 
     __table_args__ = (
         UniqueConstraint(
@@ -127,11 +263,11 @@ class ClinicalMutation(Base):
     mutation: Mapped[Boolean | None] = mapped_column(
         Boolean,
         nullable=True,
-    ) # mutation matrix
+    )  # mutation matrix
     oncoprint: Mapped[str | None] = mapped_column(
         String(100),
         nullable=True,
-    ) # oncoprint matrix
+    )  # oncoprint matrix
 
     __table_args__ = (
         UniqueConstraint(
@@ -158,7 +294,7 @@ class ClinicalCNV(Base):
     value: Mapped[int | None] = mapped_column(
         Integer,
         nullable=True,
-    ) # copy_number
+    )  # copy_number
 
     __table_args__ = (
         UniqueConstraint(
@@ -185,7 +321,7 @@ class ClinicalRPPA(Base):
     value: Mapped[float | None] = mapped_column(
         Float,
         nullable=True,
-    ) # expression matrix
+    )  # expression matrix
 
     __table_args__ = (
         UniqueConstraint(
@@ -202,7 +338,7 @@ class ClinicalMiRNA(Base):
     id: Mapped[str] = mapped_column(
         String(255),
         primary_key=True,
-    ) # Ex. hsa-let-7a-1
+    )  # Ex. hsa-let-7a-1
     sample_id: Mapped[str] = mapped_column(
         String(100),
         ForeignKey("clinical_sample.id", ondelete="CASCADE"),
@@ -216,7 +352,7 @@ class ClinicalMiRNA(Base):
     value: Mapped[float | None] = mapped_column(
         Float,
         nullable=True,
-    ) #rpm matrix
+    )  # rpm matrix
 
     __table_args__ = (
         UniqueConstraint(
@@ -243,7 +379,7 @@ class ClinicalMethylation(Base):
     value: Mapped[float | None] = mapped_column(
         Float,
         nullable=True,
-    ) #listData [[1]] matrix
+    )  # listData [[1]] matrix
 
     __table_args__ = (
         UniqueConstraint(
@@ -258,11 +394,10 @@ class ClinicalSlide(Base):
     __tablename__ = "clinical_slide"
 
     # Full slide barcode + UUID, e.g. TCGA-3B-A9HI-01Z-00-DX1.FF553011-934A-4E3E-AA53-B87FC307E095.
-	# Note: One sample can have multiple slides (some samples have up to 9).
+    # Note: One sample can have multiple slides (some samples have up to 9).
     id: Mapped[str] = mapped_column(String(150), primary_key=True)
     sample_id: Mapped[str] = mapped_column(
-        String(100),
-        ForeignKey("clinical_sample.id", ondelete="CASCADE")
+        String(100), ForeignKey("clinical_sample.id", ondelete="CASCADE")
     )
     dataset_id: Mapped[int] = mapped_column(
         Integer,
@@ -312,7 +447,10 @@ class ClinicalEmbedding(Base):
 
     __table_args__ = (
         UniqueConstraint(
-            "slide_id", "model_name", "kind", "tile_id",
+            "slide_id",
+            "model_name",
+            "kind",
+            "tile_id",
             name="uq_embedding_slide_model_kind_tile",
         ),
         CheckConstraint(
@@ -355,36 +493,6 @@ pre_clinical_gene.csv:
     Ensembl version suffixes such as .20 or .20_PAR_Y should be stripped by the
     extraction/seeding layer before insertion.
 """
-
-
-class Dataset(Base):
-    __tablename__ = "datasets"
-
-    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    name: Mapped[str] = mapped_column(String(255), nullable=False, unique=True)
-    version: Mapped[str | None] = mapped_column(String(50), nullable=True)
-    software: Mapped[str | None] = mapped_column(String(255), nullable=True)
-    link: Mapped[str | None] = mapped_column(Text, nullable=True)
-    publication: Mapped[str | None] = mapped_column(String(255), nullable=True)
-    PMID: Mapped[str | None] = mapped_column(String(255), nullable=True)
-    description: Mapped[str | None] = mapped_column(Text, nullable=True)
-    key_study_findings: Mapped[str | None] = mapped_column(Text, nullable=True)
-    clinical: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
-
-    cell_lines: Mapped[list["PreClinicalCellLine"]] = relationship(
-        back_populates="dataset",
-        cascade="all, delete-orphan",
-    )
-    samples: Mapped[list["PreClinicalSample"]] = relationship(
-        back_populates="dataset",
-        cascade="all, delete-orphan",
-        overlaps="cell_line,samples",
-    )
-    treatment_responses: Mapped[list["PreClinicalTreatmentResponse"]] = relationship(
-        back_populates="dataset",
-        cascade="all, delete-orphan",
-        overlaps="cell_line,treatment_responses",
-    )
 
 
 class PreClinicalCellLine(Base):
@@ -526,9 +634,11 @@ class PreClinicalSample(Base):
         back_populates="sample",
         cascade="all, delete-orphan",
     )
-    copy_number_variations: Mapped[list["PreClinicalCopyNumberVariation"]] = relationship(
-        back_populates="sample",
-        cascade="all, delete-orphan",
+    copy_number_variations: Mapped[list["PreClinicalCopyNumberVariation"]] = (
+        relationship(
+            back_populates="sample",
+            cascade="all, delete-orphan",
+        )
     )
     mutations: Mapped[list["PreClinicalMutation"]] = relationship(
         back_populates="sample",
@@ -579,87 +689,6 @@ class PreClinicalTreatmentResponse(Base):
         back_populates="treatment_responses",
         overlaps="dataset,treatment_responses",
     )
-
-
-class PreClinicalDrug(Base):
-    __tablename__ = "drugs"
-
-    # PubChem CID from pre_clinical_treatment_response.cid.
-    # This FK intentionally follows the requested direction: drugs.cid references
-    # treatment-response cid values that already exist in the loaded assay data.
-    cid: Mapped[str] = mapped_column(
-        String(255),
-        ForeignKey("pre_clinical_treatment_response.cid", ondelete="CASCADE"),
-        primary_key=True,
-    )
-
-    title: Mapped[str | None] = mapped_column(String(255), nullable=True)
-    mapped_name: Mapped[str | None] = mapped_column(Text, nullable=True)
-    molecule_chembl_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
-    molecule_chembl_id_from_synonyms: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
-    molecular_formula: Mapped[str | None] = mapped_column(String(255), nullable=True)
-    molecular_weight: Mapped[str | None] = mapped_column(String(255), nullable=True)
-    smiles: Mapped[str | None] = mapped_column(Text, nullable=True)
-    connectivity_smiles: Mapped[str | None] = mapped_column(Text, nullable=True)
-    inchi: Mapped[str | None] = mapped_column(Text, nullable=True)
-    inchikey: Mapped[str | None] = mapped_column(String(255), nullable=True)
-    iupac_name: Mapped[str | None] = mapped_column(Text, nullable=True)
-    xlogp: Mapped[float | None] = mapped_column(Float, nullable=True)
-    exact_mass: Mapped[str | None] = mapped_column(String(255), nullable=True)
-    monoisotopic_mass: Mapped[str | None] = mapped_column(String(255), nullable=True)
-    tpsa: Mapped[float | None] = mapped_column(Float, nullable=True)
-    complexity: Mapped[float | None] = mapped_column(Float, nullable=True)
-    charge: Mapped[int | None] = mapped_column(Integer, nullable=True)
-    h_bond_donor_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
-    h_bond_acceptor_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
-    rotatable_bond_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
-    heavy_atom_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
-    isotope_atom_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
-    atom_stereo_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
-    defined_atom_stereo_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
-    undefined_atom_stereo_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
-    bond_stereo_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
-    defined_bond_stereo_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
-    undefined_bond_stereo_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
-    covalent_unit_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
-    volume_3d: Mapped[float | None] = mapped_column(Float, nullable=True)
-    x_steric_quadrupole_3d: Mapped[float | None] = mapped_column(Float, nullable=True)
-    y_steric_quadrupole_3d: Mapped[float | None] = mapped_column(Float, nullable=True)
-    z_steric_quadrupole_3d: Mapped[float | None] = mapped_column(Float, nullable=True)
-    feature_count_3d: Mapped[int | None] = mapped_column(Integer, nullable=True)
-    feature_acceptor_count_3d: Mapped[int | None] = mapped_column(Integer, nullable=True)
-    feature_donor_count_3d: Mapped[int | None] = mapped_column(Integer, nullable=True)
-    feature_anion_count_3d: Mapped[int | None] = mapped_column(Integer, nullable=True)
-    feature_cation_count_3d: Mapped[int | None] = mapped_column(Integer, nullable=True)
-    feature_ring_count_3d: Mapped[int | None] = mapped_column(Integer, nullable=True)
-    feature_hydrophobe_count_3d: Mapped[int | None] = mapped_column(Integer, nullable=True)
-    conformer_model_rmsd_3d: Mapped[float | None] = mapped_column(Float, nullable=True)
-    effective_rotor_count_3d: Mapped[float | None] = mapped_column(Float, nullable=True)
-    conformer_count_3d: Mapped[int | None] = mapped_column(Integer, nullable=True)
-    fingerprint_2d: Mapped[str | None] = mapped_column(Text, nullable=True)
-    patent_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
-    patent_family_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
-    literature_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
-    annotation_types: Mapped[str | None] = mapped_column(Text, nullable=True)
-    annotation_type_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
-    chembl_max_phase: Mapped[int | None] = mapped_column(Integer, nullable=True)
-    drug_like: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
-    fda_approval: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
-    date_added: Mapped[object | None] = mapped_column(DateTime, nullable=True)
-    atc_code: Mapped[str | None] = mapped_column(String(255), nullable=True)
-
-    # First object from the AnnotationDB mechanisms list, if present.
-    mechanism_molecule_chembl_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
-    mechanism_parent_molecule_chembl_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
-    mechanism_action_type: Mapped[str | None] = mapped_column(String(255), nullable=True)
-    mechanism_of_action: Mapped[str | None] = mapped_column(Text, nullable=True)
-
-
-class PreClinicalGene(Base):
-    __tablename__ = "pre_clinical_gene"
-
-    id: Mapped[str] = mapped_column(String(255), primary_key=True)
-    name: Mapped[str | None] = mapped_column(String(255), nullable=True)
 
 
 class PreClinicalRnaSeq(Base):
