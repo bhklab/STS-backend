@@ -21,7 +21,7 @@ from models.tables import (
     PreClinicalCellLineInfo,
     PreClinicalGene,
     PreClinicalTreatmentResponse,
-    PreClinicalDrug,
+    Drugs,
     ClinicalSample,
     ClinicalAntigen,
     ClinicalProbe,
@@ -351,9 +351,9 @@ async def get_treatment_response(
                     PreClinicalCellLine.age,
                     PreClinicalCellLineInfo.second_level,
                     PreClinicalCellLineInfo.disease_descriptions,
-                    PreClinicalDrug.fda_approval,
-                    PreClinicalDrug.mechanism_action_type,
-                    PreClinicalDrug.mechanism_of_action,
+                    Drugs.fda_approval,
+                    Drugs.mechanism_action_type,
+                    Drugs.mechanism_of_action,
                 )
                 .join(
                     PreClinicalCellLine,
@@ -367,8 +367,8 @@ async def get_treatment_response(
                     PreClinicalCellLine.accession == PreClinicalCellLineInfo.accession,
                 )
                 .outerjoin(
-                    PreClinicalDrug,
-                    PreClinicalTreatmentResponse.cid == PreClinicalDrug.cid,
+                    Drugs,
+                    PreClinicalTreatmentResponse.cid == Drugs.cid,
                 )
                 .filter(PreClinicalTreatmentResponse.dataset_id == dataset_id)
             )

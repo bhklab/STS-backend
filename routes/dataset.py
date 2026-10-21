@@ -6,7 +6,6 @@ from models.tables import (
     Dataset,
     PreClinicalSample,
     PreClinicalTreatmentResponse,
-    PreClinicalDrug,
     PreClinicalGene,
     PreClinicalRnaSeq,
     PreClinicalCopyNumberVariation,
